@@ -28,7 +28,8 @@ apps/<produkt>/api/v1/              Transport: serializers.py views.py filters.p
 
 **Datenbank**
 - Alle Models erben `apps.common.models.BaseModel` (UUID, `created_at`, `updated_at`).
-- `makemigrations <app>` immer mit App-Namen. Jede Migration reversibel; Daten-Migrationen getrennt.
+- **NIEMALS `makemigrations` oder `migrate` ohne App-Namen.** Immer `makemigrations <app>` und `migrate <app>` — jede App hat eigene Migrations und eigene Tabellen, das ist die Grundlage für den späteren Umzug einzelner Apps. Ausnahme nur `makemigrations --check --dry-run` (prüft, erzeugt nichts).
+- Jede Migration reversibel; Daten-Migrationen getrennt.
 - Constraints in der DB (`UniqueConstraint`, `CheckConstraint`, `Meta.indexes`). `on_delete` bewusst: `PROTECT` für Stammdaten.
 - Geld `DecimalField`. Kein `null=True` auf Text. Übersetzungen als `<Model>Translation` mit `UniqueConstraint(["<model>", "locale"])`.
 - Kein Raw-SQL ohne gebundene Parameter.
@@ -78,4 +79,4 @@ Bei der Eingabe von `commit` (auch „commit das", „commit & push" o. ä.):
 | `.claude/README.md` | wie dieser Ordner funktioniert |
 | `D:\analyse\modular_monolith.pdf` | Ausführliches Infoblatt zur Architektur |
 
-Modi: `/learn-mode` (Nutzer baut, Claude erklärt kurz) · `/build-mode` (Claude baut). Agents nur auf Anfrage.
+Modi: `/learn-mode` (Nutzer baut, Claude erklärt mit Infoboxen) · `/clear-mode` (Nutzer baut, Claude erklärt kurz ohne Infoboxen) · `/build-mode` (Claude baut). Agents nur auf Anfrage.
