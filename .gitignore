@@ -55,10 +55,12 @@ to-do.md
 # Claude / AI-Tools
 # ---------------------------------------------------------------
 .claude/
+CLAUDE.md
 CLAUDE.local.md
 .cursor/
 .aider*
 .codeium/
+.CLAUDE.md
 
 # ---------------------------------------------------------------
 # Testing / Coverage
