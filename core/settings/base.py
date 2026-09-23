@@ -6,17 +6,14 @@ Never used directly as DJANGO_SETTINGS_MODULE. Environment-specific modules
 Values that change between deployments come from the environment (12-factor).
 """
 
+import os
 from pathlib import Path
-
-import environ
 
 # core/settings/base.py -> core/settings -> core -> project root
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-env = environ.Env()
-
-# Secrets: no defaults on purpose. A missing variable must fail at startup.
-SECRET_KEY = env("SECRET_KEY")
+# Secrets: no defaults on purpose. A missing variable raises KeyError at startup.
+SECRET_KEY = os.environ["SECRET_KEY"]
 
 
 # Application definition
@@ -29,7 +26,10 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "accounts",
 ]
+
+AUTH_USER_MODEL = "accounts.User"
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -63,10 +63,18 @@ WSGI_APPLICATION = "core.wsgi.application"
 
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
-# Structure is identical everywhere; only DATABASE_URL differs per environment.
+# Structure is identical everywhere; only the POSTGRES_* variables differ
+# per environment (.env locally, docker-compose or platform variables otherwise).
 
 DATABASES = {
-    "default": env.db("DATABASE_URL"),
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.environ["POSTGRES_DB"],
+        "USER": os.environ["POSTGRES_USER"],
+        "PASSWORD": os.environ["POSTGRES_PASSWORD"],
+        "HOST": os.environ.get("POSTGRES_HOST", "localhost"),
+        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+    }
 }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

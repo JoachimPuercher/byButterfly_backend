@@ -6,12 +6,14 @@ Does not read a .env file: every value comes from the process environment
 Verify with: DJANGO_SETTINGS_MODULE=core.settings.prod manage.py check --deploy
 """
 
+import os
+
 from .base import *  # noqa: F403
-from .base import env
 
 DEBUG = False
 
-ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
+# Comma-separated, e.g. "api.example.com,example.com"
+ALLOWED_HOSTS = [h.strip() for h in os.environ["ALLOWED_HOSTS"].split(",") if h.strip()]
 
 
 # HTTPS / cookies
@@ -48,6 +50,6 @@ LOGGING = {
     },
     "root": {
         "handlers": ["console"],
-        "level": env("LOG_LEVEL", default="INFO"),
+        "level": os.environ.get("LOG_LEVEL", "INFO"),
     },
 }

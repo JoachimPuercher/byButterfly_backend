@@ -7,9 +7,11 @@ secrets never live in code. Copy .env.example to .env to get started.
 
 from pathlib import Path
 
-import environ
+from dotenv import load_dotenv
 
-environ.Env.read_env(Path(__file__).resolve().parent.parent.parent / ".env")
+# Variables already present in the process (e.g. from docker-compose env_file)
+# take precedence; load_dotenv does not override them.
+load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 
 from .base import *  # noqa: E402, F403
 
