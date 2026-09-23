@@ -1,0 +1,47 @@
+# Virtual environments (image installs its own)
+venv/
+.venv/
+
+# Secrets (passed at runtime via --env-file / compose env_file)
+.env
+.env.*
+!.env.example
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local data
+db.sqlite3
+db.sqlite3-journal
+/media/
+/staticfiles/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Project-internal notes and tooling
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+projects-files/
+to-do.md
+agents.md
+
+# Docker itself
+Dockerfile
+.dockerignore
+docker-compose*.yml
