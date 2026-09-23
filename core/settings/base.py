@@ -26,6 +26,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "apps.common",
     "apps.accounts",
     "apps.jenymia",
     "django_rq",
