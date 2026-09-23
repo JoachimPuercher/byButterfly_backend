@@ -1,8 +1,10 @@
 from django.conf import settings
 from django.db import models
 
+from apps.common.models import BaseModel
 
-class ProductToAnalyse(models.Model):
+
+class ProductToAnalyse(BaseModel):
     class Status(models.TextChoices):
         NOT_ANALYSED = "not_analysed", "not analysed"
         ALREADY_ANALYSED = "already_analysed", "already analysed"
@@ -13,8 +15,6 @@ class ProductToAnalyse(models.Model):
 
     title = models.CharField(max_length=200)
     brand = models.CharField(max_length=100)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
@@ -33,7 +33,7 @@ class ProductToAnalyse(models.Model):
     )
 
 
-class YoutubeUrl(models.Model):
+class YoutubeUrl(BaseModel):
     product = models.ForeignKey(
         ProductToAnalyse,
         on_delete=models.CASCADE,
@@ -41,11 +41,10 @@ class YoutubeUrl(models.Model):
     )
     url = models.URLField(max_length=500)
     raw_text = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
     source_date = models.DateField(null=True, blank=True)
 
 
-class WebUrl(models.Model):
+class WebUrl(BaseModel):
     product = models.ForeignKey(
         ProductToAnalyse,
         on_delete=models.CASCADE,
@@ -53,5 +52,4 @@ class WebUrl(models.Model):
     )
     url = models.URLField(max_length=500)
     raw_text = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
     source_date = models.DateField(null=True, blank=True)
