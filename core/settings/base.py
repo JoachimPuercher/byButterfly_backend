@@ -28,12 +28,14 @@ INSTALLED_APPS = [
     "rest_framework",
     "apps.accounts",
     "apps.jenymia",
+    "django_rq",
 ]
 
 AUTH_USER_MODEL = "accounts.User"
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -117,3 +119,16 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+
+
+# Task queue (django-rq)
+# One queue is enough until a slow job type measurably blocks a fast one.
+# Redis is the broker only; job state lives in Postgres.
+
+RQ_QUEUES = {
+    "default": {
+        "URL": os.environ["REDIS_URL"],
+        "DEFAULT_TIMEOUT": int(os.environ.get("RQ_DEFAULT_TIMEOUT", "600")),
+        "DEFAULT_RESULT_TTL": int(os.environ.get("RQ_RESULT_TTL", "3600")),
+    },
+}
