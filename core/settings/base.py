@@ -26,7 +26,8 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
-    "accounts",
+    "apps.accounts",
+    "apps.jenymia",
 ]
 
 AUTH_USER_MODEL = "accounts.User"
