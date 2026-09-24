@@ -16,6 +16,13 @@ DEBUG = False
 ALLOWED_HOSTS = [h.strip() for h in os.environ["ALLOWED_HOSTS"].split(",") if h.strip()]
 
 
+# Database connections: gunicorn workers have no pooler in front of them, so
+# keep connections open across requests and drop broken ones before reuse.
+
+DATABASES["default"]["CONN_MAX_AGE"] = int(os.environ["CONN_MAX_AGE"])  # noqa: F405
+DATABASES["default"]["CONN_HEALTH_CHECKS"] = True  # noqa: F405
+
+
 # HTTPS / cookies
 # https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 

@@ -88,6 +88,9 @@ DATABASES = {
         "PASSWORD": os.environ["POSTGRES_PASSWORD"],
         "HOST": os.environ["POSTGRES_HOST"],
         "PORT": os.environ["POSTGRES_PORT"],
+        # "prefer" for the local Docker database and Railway's private network;
+        # "require" when the local pipeline connects through the public TCP proxy.
+        "OPTIONS": {"sslmode": os.environ["POSTGRES_SSLMODE"]},
     }
 }
 
