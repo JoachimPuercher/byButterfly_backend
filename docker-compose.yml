@@ -1,5 +1,11 @@
 # Local development only. Production runs the Dockerfile CMD on Railway.
 # All values come from .env (gitignored); copy .env.example to get started.
+#
+# Two env files, both gitignored, both must define ENV_FILE with their own name:
+#   .env          local Postgres in the db container      docker compose up
+#   .env.railway  production Postgres on Railway          docker compose --env-file .env.railway up web worker redis
+# --env-file only fills the ${...} placeholders below; env_file hands the
+# same file to the containers. Do not start db with .env.railway.
 
 services:
 
@@ -31,7 +37,7 @@ services:
   web:
     build: .
     command: python manage.py runserver 0.0.0.0:8000
-    env_file: .env
+    env_file: ${ENV_FILE}
     environment:
       DJANGO_SETTINGS_MODULE: core.settings.dev
       DEPLOY_BACKGROUND_WORKERS: "True"
@@ -42,6 +48,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
+        required: false  # not started with .env.railway
       redis:
         condition: service_healthy
 
@@ -50,7 +57,7 @@ services:
   worker:
     build: .
     command: python manage.py rqworker default
-    env_file: .env
+    env_file: ${ENV_FILE}
     environment:
       DJANGO_SETTINGS_MODULE: core.settings.dev
       DEPLOY_BACKGROUND_WORKERS: "True"
@@ -59,6 +66,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
+        required: false  # not started with .env.railway
       redis:
         condition: service_healthy
 
