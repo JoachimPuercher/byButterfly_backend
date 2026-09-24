@@ -12,7 +12,8 @@ from pathlib import Path
 # core/settings/base.py -> core/settings -> core -> project root
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-# Secrets: no defaults on purpose. A missing variable raises KeyError at startup.
+# No defaults anywhere in the settings: every value is set explicitly per
+# environment. A missing variable raises KeyError at startup, on purpose.
 SECRET_KEY = os.environ["SECRET_KEY"]
 
 # Background workers (django-rq + Redis) are opt-in per environment.
@@ -20,11 +21,7 @@ SECRET_KEY = os.environ["SECRET_KEY"]
 # no broker; the worker, Redis and the analysis pipeline run locally and talk
 # to the production database directly through the ORM. Set the flag to True
 # locally and to False on Railway until the worker moves there (backlog 5.6).
-DEPLOY_BACKGROUND_WORKERS = os.environ.get("DEPLOY_BACKGROUND_WORKERS", "False").lower() in (
-    "1",
-    "true",
-    "yes",
-)
+DEPLOY_BACKGROUND_WORKERS = os.environ["DEPLOY_BACKGROUND_WORKERS"].lower() in ("1", "true", "yes")
 
 
 # Application definition
@@ -89,8 +86,8 @@ DATABASES = {
         "NAME": os.environ["POSTGRES_DB"],
         "USER": os.environ["POSTGRES_USER"],
         "PASSWORD": os.environ["POSTGRES_PASSWORD"],
-        "HOST": os.environ.get("POSTGRES_HOST", "localhost"),
-        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+        "HOST": os.environ["POSTGRES_HOST"],
+        "PORT": os.environ["POSTGRES_PORT"],
     }
 }
 
@@ -143,13 +140,13 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 if DEPLOY_BACKGROUND_WORKERS:
     RQ_QUEUES = {
         "default": {
-            "HOST": os.environ.get("REDIS_HOST", "redis"),
-            "PORT": int(os.environ.get("REDIS_PORT", "6379")),
-            "DB": int(os.environ.get("REDIS_DB", "0")),
+            "HOST": os.environ["REDIS_HOST"],
+            "PORT": int(os.environ["REDIS_PORT"]),
+            "DB": int(os.environ["REDIS_DB"]),
             # docker-compose starts Redis with --requirepass ${REDIS_PASSWORD}
-            "PASSWORD": os.environ.get("REDIS_PASSWORD", ""),
-            "DEFAULT_TIMEOUT": int(os.environ.get("RQ_DEFAULT_TIMEOUT", "600")),
-            "DEFAULT_RESULT_TTL": int(os.environ.get("RQ_RESULT_TTL", "3600")),
+            "PASSWORD": os.environ["REDIS_PASSWORD"],
+            "DEFAULT_TIMEOUT": int(os.environ["RQ_DEFAULT_TIMEOUT"]),
+            "DEFAULT_RESULT_TTL": int(os.environ["RQ_RESULT_TTL"]),
             "REDIS_CLIENT_KWARGS": {},
         },
     }
