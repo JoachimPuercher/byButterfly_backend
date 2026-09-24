@@ -15,6 +15,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 # Secrets: no defaults on purpose. A missing variable raises KeyError at startup.
 SECRET_KEY = os.environ["SECRET_KEY"]
 
+# Background workers (django-rq + Redis) are opt-in per environment.
+# Phase 1: the Railway web service serves only the API and the admin and has
+# no broker; the worker, Redis and the analysis pipeline run locally and talk
+# to the production database directly through the ORM. Set the flag to True
+# locally and to False on Railway until the worker moves there (backlog 5.6).
+DEPLOY_BACKGROUND_WORKERS = os.environ.get("DEPLOY_BACKGROUND_WORKERS", "False").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
 
 # Application definition
 
@@ -29,8 +40,10 @@ INSTALLED_APPS = [
     "apps.common",
     "apps.accounts",
     "apps.jenymia",
-    "django_rq",
 ]
+
+if DEPLOY_BACKGROUND_WORKERS:
+    INSTALLED_APPS.append("django_rq")
 
 AUTH_USER_MODEL = "accounts.User"
 
@@ -125,11 +138,18 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # Task queue (django-rq)
 # One queue is enough until a slow job type measurably blocks a fast one.
 # Redis is the broker only; job state lives in Postgres.
+# Only defined when DEPLOY_BACKGROUND_WORKERS is set (see top of file).
 
-RQ_QUEUES = {
-    "default": {
-        "URL": os.environ["REDIS_URL"],
-        "DEFAULT_TIMEOUT": int(os.environ.get("RQ_DEFAULT_TIMEOUT", "600")),
-        "DEFAULT_RESULT_TTL": int(os.environ.get("RQ_RESULT_TTL", "3600")),
-    },
-}
+if DEPLOY_BACKGROUND_WORKERS:
+    RQ_QUEUES = {
+        "default": {
+            "HOST": os.environ.get("REDIS_HOST", "redis"),
+            "PORT": int(os.environ.get("REDIS_PORT", "6379")),
+            "DB": int(os.environ.get("REDIS_DB", "0")),
+            # docker-compose starts Redis with --requirepass ${REDIS_PASSWORD}
+            "PASSWORD": os.environ.get("REDIS_PASSWORD", ""),
+            "DEFAULT_TIMEOUT": int(os.environ.get("RQ_DEFAULT_TIMEOUT", "600")),
+            "DEFAULT_RESULT_TTL": int(os.environ.get("RQ_RESULT_TTL", "3600")),
+            "REDIS_CLIENT_KWARGS": {},
+        },
+    }

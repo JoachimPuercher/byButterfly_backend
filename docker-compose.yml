@@ -34,6 +34,7 @@ services:
     env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: core.settings.dev
+      DEPLOY_BACKGROUND_WORKERS: "True"
     volumes:
       - .:/app
     ports:
@@ -44,12 +45,15 @@ services:
       redis:
         condition: service_healthy
 
+  # Phase 1: the worker runs only here, never on Railway. It reads and writes
+  # the production database directly (POSTGRES_HOST = Railway TCP proxy).
   worker:
     build: .
     command: python manage.py rqworker default
     env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: core.settings.dev
+      DEPLOY_BACKGROUND_WORKERS: "True"
     volumes:
       - .:/app
     depends_on:
