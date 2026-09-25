@@ -38,6 +38,17 @@ logger = logging.getLogger(__name__)
 # would be a DataError that costs the whole run.
 SMALLINT_MAX = 32767
 
+# specs, faqs and pros_cons are marked required in the schema the model gets
+# (see json_schema) so it cannot skip them, but they keep a default here: a
+# product whose sources carry nothing on them must cost those entries, not
+# the whole analysis. What is missing becomes a row saying so, which is
+# visible in the admin - an empty table is not.
+FORCED_LISTS = ("specs", "faqs", "pros_cons")
+MISSING_DATA = "Zu wenige Analysedaten - manuell eintragen"
+MAX_FAQS = 8
+# Per type, not over the whole list.
+MAX_PROS_CONS_PER_TYPE = 6
+
 
 # --- building blocks ------------------------------------------------------
 
@@ -325,13 +336,22 @@ class LearningBadgeIn(Block):
 
 class SpecText(Block):
     value: Text = Field(
-        max_length=300, description="The value in this language, e.g. 'Holz'."
+        max_length=300,
+        description=(
+            "The value in this language, as concrete as the source is: "
+            "'Buchenholz, unbehandelt' rather than 'Holz', '38 x 26 x 9 cm' "
+            "rather than 'kompakt'."
+        ),
     )
 
 
 class SpecIn(Block):
     key: Text = Field(
-        max_length=60, description="Untranslated, stable key, e.g. 'material'."
+        max_length=60,
+        description=(
+            "Untranslated, stable key, e.g. 'material', 'masse', 'gewicht', "
+            "'lieferumfang', 'altersangabe-hersteller', 'pflege'."
+        ),
     )
     sort_order: int = Field(default=0, ge=0, le=SMALLINT_MAX)
     translations: Translated[SpecText]
@@ -339,9 +359,20 @@ class SpecIn(Block):
 
 class FaqText(Block):
     question: str = Field(
-        max_length=300, description="A question parents actually ask."
+        max_length=300,
+        description=(
+            "A question parents really type into a search engine before "
+            "buying, e.g. 'Ist die Trinkflasche spuelmaschinenfest?'. Not a "
+            "question the review text has already answered."
+        ),
     )
-    answer: str = Field(description="Two to four sentences.")
+    answer: str = Field(
+        description=(
+            "Two to four sentences that start with the answer, not with an "
+            "introduction, and name the fact from the source that backs it. "
+            "No sentence that would fit any other product of this kind."
+        )
+    )
 
 
 class FaqIn(Block):
@@ -351,7 +382,13 @@ class FaqIn(Block):
 
 class ProsConText(Block):
     text: str = Field(
-        max_length=300, description="One advantage or disadvantage, in a few words."
+        max_length=300,
+        description=(
+            "One advantage or drawback with the concrete reason behind it, "
+            "not only the label: 'Haelt eine Schulwoche ohne Nachladen - "
+            "zwei Tests messen sechs bis sieben Tage' rather than 'gute "
+            "Akkulaufzeit'."
+        ),
     )
 
 
@@ -401,38 +438,94 @@ class BaseText(Block):
         ),
     )
     hook: str = Field(
-        max_length=300, description="One sentence that makes a parent read on."
+        max_length=300,
+        description=(
+            "One sentence that makes a parent read on, built on the one fact "
+            "that decides this product, e.g. 'Drei Tests kommen auf dieselbe "
+            "Schwachstelle - der Deckel.' No advertising, no superlative."
+        ),
     )
     description_short: str = Field(
-        description="Two to three sentences for the product card."
+        description=(
+            "Two to three sentences for the product card, in the first person "
+            "plural. Must name at least one concrete fact from the sources - "
+            "a measurement, a material, a test result."
+        )
     )
-    description_detail: str = Field(description="The full review text.")
-    meta_title: str = Field(max_length=70, description="SEO title, 50-60 characters.")
+    description_detail: str = Field(
+        description=(
+            "The full review, 400 to 700 words in four to six paragraphs: "
+            "what it is, what the sources agree on, where they contradict "
+            "each other and who says what, how it holds up in everyday use, "
+            "and for whom it is worth it. First person plural throughout. "
+            "Every paragraph carries figures from the sources."
+        )
+    )
+    meta_title: str = Field(
+        max_length=70,
+        description=(
+            "SEO title, 50-60 characters, starting with the term parents "
+            "search for, pattern '<Produkt> Test 2026 - <kurze Frage>'."
+        ),
+    )
     meta_description: str = Field(
-        max_length=180, description="SEO description, 150-160 characters."
+        max_length=180,
+        description=(
+            "SEO description, 150-160 characters, starting with the search "
+            "term, naming what the reader learns and how many sources were "
+            "reviewed."
+        ),
     )
     summary: str = Field(
         description=(
             "40-60 words, a complete answer on its own, understandable without "
-            "the rest of the page. This is the block AI search engines quote."
+            "the rest of the page. This is the block AI search engines quote, "
+            "so it names the product and the verdict inside itself and refers "
+            "back to nothing - no 'dieses Produkt', no 'wie oben'."
         )
     )
     verdict: str = Field(
-        max_length=300, description="One quotable sentence with the verdict."
+        max_length=300,
+        description=(
+            "One quotable sentence that gives the verdict and the reason for "
+            "it, e.g. 'Empfehlenswert fuer den taeglichen Schulweg - die "
+            "Naht an den Traegern ist die einzige Stelle, die in zwei Tests "
+            "nachgab.'"
+        ),
     )
     question_headline: str = Field(
         max_length=200,
-        description="The headline phrased as the question a parent would type.",
+        description=(
+            "The headline as the question a parent types word for word, e.g. "
+            "'Haelt die Brotdose von Marke X eine Schulwoche aus?'"
+        ),
     )
 
 
 class SafetyText(BaseText):
-    safety_short: str = Field(description="Two sentences on safety.")
-    safety_long: str = Field(description="The detailed safety assessment.")
+    safety_short: str = Field(
+        description=(
+            "Two sentences on safety, naming the test mark or the norm the "
+            "source states, or saying plainly that no source checked it."
+        )
+    )
+    safety_long: str = Field(
+        description=(
+            "The detailed safety assessment, 120 to 250 words: small parts, "
+            "materials, edges, batteries, what was tested by whom. What no "
+            "source checked is named as unchecked, never as safe."
+        )
+    )
 
 
 class ToysText(SafetyText):
-    growth_info: str = Field(description="How long the product grows with the child.")
+    growth_info: str = Field(
+        description=(
+            "80 to 150 words on how long the product grows with the child: "
+            "from which age it works, when it stops being played with, and "
+            "what happens to it afterwards."
+        )
+    )
 
 
 class SchoolText(SafetyText):
@@ -440,8 +533,20 @@ class SchoolText(SafetyText):
 
 
 class TechText(BaseText):
-    privacy_short: str = Field(description="Two sentences on data protection.")
-    privacy_long: str = Field(description="The detailed data protection assessment.")
+    privacy_short: str = Field(
+        description=(
+            "Two sentences on data protection, naming what is collected and "
+            "where it is stored, or saying plainly that the maker does not say."
+        )
+    )
+    privacy_long: str = Field(
+        description=(
+            "The detailed data protection assessment, 120 to 250 words: which "
+            "data, which server region, whether it can be switched off, "
+            "whether an account is required. Silence from the maker is "
+            "reported as silence, not as a no."
+        )
+    )
 
 
 # --- the answer -----------------------------------------------------------
@@ -512,9 +617,27 @@ class BaseAnalysis(Block):
 
     sub_categories: list[SubCategoryIn] = []
     badges: list[BadgeIn] = []
-    specs: list[SpecIn] = []
-    faqs: list[FaqIn] = []
-    pros_cons: list[ProsConIn] = []
+    specs: list[SpecIn] = Field(
+        default_factory=list,
+        description=(
+            "The hard facts the sources state: material, dimensions, weight, "
+            "the maker's age range, what is in the box, care, battery life. "
+            "One entry per fact, never a whole sentence."
+        ),
+    )
+    faqs: list[FaqIn] = Field(
+        default_factory=list,
+        description="Two to eight questions parents really ask before buying.",
+    )
+    pros_cons: list[ProsConIn] = Field(
+        default_factory=list,
+        description=(
+            "Two to six advantages and two to six drawbacks, each with the "
+            "concrete reason from the sources. A product without a single "
+            "drawback does not exist: if no source names one, that silence "
+            "is the drawback."
+        ),
+    )
 
     translations: Translated[BaseText]
 
@@ -550,6 +673,61 @@ class BaseAnalysis(Block):
             seen.add(spec.key)
             kept.append(spec)
         self.specs = kept
+
+        self.faqs = self.faqs[:MAX_FAQS]
+        if not self.faqs:
+            logger.warning("No FAQ in the answer; writing the placeholder row.")
+            self.faqs = [
+                FaqIn.model_validate(
+                    {
+                        "translations": {
+                            locale: {"question": MISSING_DATA, "answer": MISSING_DATA}
+                            for locale in ("de", "en")
+                        }
+                    }
+                )
+            ]
+
+        # Capped per type rather than over the whole list: six advantages at
+        # the front would otherwise push out every drawback behind them.
+        per_type: dict[str, int] = {}
+        kept_pros_cons = []
+        for entry in self.pros_cons:
+            per_type[entry.type] = per_type.get(entry.type, 0) + 1
+            if per_type[entry.type] > MAX_PROS_CONS_PER_TYPE:
+                logger.warning("Dropping %r beyond the cap.", entry.type)
+                continue
+            kept_pros_cons.append(entry)
+        self.pros_cons = kept_pros_cons
+
+        if not self.pros_cons:
+            logger.warning(
+                "No pros or cons in the answer; writing the placeholder rows."
+            )
+            self.pros_cons = [
+                ProsConIn.model_validate(
+                    {
+                        "type": kind,
+                        "translations": {
+                            locale: {"text": MISSING_DATA} for locale in ("de", "en")
+                        },
+                    }
+                )
+                for kind in (ProductProsCon.Type.PRO, ProductProsCon.Type.CON)
+            ]
+
+        if not self.specs:
+            logger.warning("No specs in the answer; writing the placeholder row.")
+            self.specs = [
+                SpecIn.model_validate(
+                    {
+                        "key": "hinweis",
+                        "translations": {
+                            locale: {"value": MISSING_DATA} for locale in ("de", "en")
+                        },
+                    }
+                )
+            ]
         return self
 
 
@@ -589,9 +767,18 @@ ANALYSIS_MODELS: dict[str, type[BaseAnalysis]] = {
 
 def json_schema(pipeline: str) -> dict[str, Any]:
     """The shape of the answer, for the prompt and for the provider's
-    structured output mode."""
+    structured output mode.
+
+    FORCED_LISTS is added to required here rather than by dropping the
+    defaults on those fields. A field without a default is required in both
+    directions: the model has to write it, and pydantic rejects the whole
+    answer when it does not. Only the first half is wanted. Marking them
+    required in the emitted schema makes the model fill them, while the
+    defaults keep a thin answer alive for _repair to put the placeholder in.
+    """
     print("SCHEMA.JSON_SCHEMA - STARTED", pipeline)
     result = ANALYSIS_MODELS[pipeline].model_json_schema()
+    result["required"] = sorted(set(result["required"]) | set(FORCED_LISTS))
     print("SCHEMA.JSON_SCHEMA - DONE", pipeline)
     return result
 

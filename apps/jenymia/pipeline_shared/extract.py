@@ -48,7 +48,16 @@ def run_extract(order_id: str) -> None:
             print("EXTRACT.RUN_EXTRACT - DONE", order_id)
             return
 
-        prompt, prompt_version = build_prompt(prompt_name, pipeline, sources)
+        # What the order already knows about the product. Video tests
+        # regularly cover several devices, so without this the model has no
+        # way of telling which passages are about this one - and brand is a
+        # field the write step refuses to do without.
+        product = {
+            "title": order.title,
+            "brand": order.brand,
+            "main_category": order.get_primary_category_display(),
+        }
+        prompt, prompt_version = build_prompt(prompt_name, pipeline, product, sources)
         answer, provider, model = analyse(prompt, pipeline)
         data = schema.parse(answer, pipeline)
         product = services.create_product_from_analysis(order, data)
@@ -87,6 +96,15 @@ def _collect_sources(order: ProductToAnalyse) -> list[dict]:
                 "publisher": source.channel,
                 "published_at": str(source.source_date or ""),
                 "text": source.raw_text,
+                # The spoken text is only part of what a video carries. Its
+                # description and chapter titles routinely hold dimensions,
+                # materials and prices that are never said out loud, and they
+                # are already in the database - they were simply never sent.
+                "description": source.description,
+                "chapters": source.chapters,
+                "tags": source.tags,
+                "duration_seconds": source.duration_seconds,
+                "spoken_language": source.transcript_language,
             }
         )
     for source in order.web_urls.filter(extract_status=ExtractStatus.EXTRACTED):
@@ -98,6 +116,14 @@ def _collect_sources(order: ProductToAnalyse) -> list[dict]:
                 "publisher": source.site_name or source.author,
                 "published_at": str(source.source_date or ""),
                 "text": source.raw_text,
+                # jsonld is schema.org/Product as the page publishes it about
+                # itself: brand, GTIN, price and properties, already
+                # structured. Headings give back the shape of a spec table
+                # that the plain text flattens into prose.
+                "summary": source.meta_description,
+                "headings": source.headings,
+                "jsonld": source.jsonld,
+                "opengraph": source.opengraph,
             }
         )
     print("EXTRACT._COLLECT_SOURCES - DONE", len(sources))
@@ -105,7 +131,7 @@ def _collect_sources(order: ProductToAnalyse) -> list[dict]:
 
 
 def build_prompt(
-    prompt_name: str, pipeline: str, sources: list[dict]
+    prompt_name: str, pipeline: str, product: dict, sources: list[dict]
 ) -> tuple[str, str]:
     """Base prompt plus the fragment of this product group.
 
@@ -119,8 +145,13 @@ def build_prompt(
     group, group_version = _read_prompt(f"{prompt_name}.md")
 
     fields = json.dumps(schema.json_schema(pipeline), indent=2, ensure_ascii=False)
+    rendered_product = json.dumps(product, indent=2, ensure_ascii=False)
     rendered_sources = json.dumps(sources, indent=2, ensure_ascii=False)
-    prompt = base.format(fields=fields, sources=rendered_sources) + "\n\n" + group
+    prompt = (
+        base.format(fields=fields, product=rendered_product, sources=rendered_sources)
+        + "\n\n"
+        + group
+    )
 
     print("EXTRACT.BUILD_PROMPT - DONE", prompt_name)
     return prompt, f"{base_version}+{group_version}"
@@ -132,7 +163,7 @@ def _read_prompt(name: str) -> tuple[str, str]:
     out later which products a given prompt produced.
 
     _base.md goes through str.format, so it may contain no braces except the
-    two placeholders {fields} and {sources}. The group files are appended
+    three placeholders {fields}, {product} and {sources}. The group files are appended
     unformatted and may use braces freely."""
     print("EXTRACT._READ_PROMPT - STARTED", name)
     text = (PROMPTS_DIR / name).read_text(encoding="utf-8")
