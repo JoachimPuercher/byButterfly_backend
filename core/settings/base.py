@@ -21,7 +21,11 @@ SECRET_KEY = os.environ["SECRET_KEY"]
 # no broker; the worker, Redis and the analysis pipeline run locally and talk
 # to the production database directly through the ORM. Set the flag to True
 # locally and to False on Railway until the worker moves there (backlog 5.6).
-DEPLOY_BACKGROUND_WORKERS = os.environ["DEPLOY_BACKGROUND_WORKERS"].lower() in ("1", "true", "yes")
+DEPLOY_BACKGROUND_WORKERS = os.environ["DEPLOY_BACKGROUND_WORKERS"].lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 
 # Application definition
@@ -95,6 +99,76 @@ DATABASES = {
 }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+
+# Cache
+# Holds the throttle counters. In-memory is enough while no frontend calls
+# the API: it lives in the worker process, so each gunicorn worker counts on
+# its own and the effective limit is multiplied. Before the frontend goes
+# live this has to become a shared backend (Redis, or the database backend
+# plus a one-off "manage.py createcachetable"), otherwise the limit below is
+# a rough guideline rather than a limit.
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "bybutterfly",
+    }
+}
+
+
+# Django REST Framework
+# Authentication is session only: DRF's default also enables HTTP Basic,
+# which would let anyone try staff passwords against every API endpoint,
+# and authentication runs before throttling, so the rate limit would not
+# stop it. Permissions are closed by default; each view opens itself
+# explicitly (AllowAny on the public read endpoints).
+# Throttle format is DRF's: "<number>/<second|minute|hour|day>".
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAdminUser",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "jenymia_product_detail_anon": "60/min",
+        "jenymia_product_detail_user": "120/min",
+    },
+}
+
+
+# Media (Cloudflare R2 in production, any static host locally)
+# The database stores relative keys only; this is the domain they hang from.
+
+JENYMIA_MEDIA_BASE_URL = os.environ["JENYMIA_MEDIA_BASE_URL"]
+
+
+# Analysis pipeline
+# JENYMIA_AUDIO_DIR holds downloaded audio between download and transcript
+# only - the file is deleted once its text is stored, so the directory never
+# needs to be persistent and works on an ephemeral container filesystem.
+
+JENYMIA_AUDIO_DIR = os.environ["JENYMIA_AUDIO_DIR"]
+MAX_VIDEO_DURATION_SECONDS = int(os.environ["MAX_VIDEO_DURATION_SECONDS"])
+# Total executions of the ingest job including the first one; rq gets
+# INGEST_MAX_ATTEMPTS - 1 retries and refuses a retry count of zero.
+INGEST_MAX_ATTEMPTS = int(os.environ["INGEST_MAX_ATTEMPTS"])
+if INGEST_MAX_ATTEMPTS < 2:
+    raise ValueError("INGEST_MAX_ATTEMPTS must be at least 2.")
+
+WHISPER_MODEL = os.environ["WHISPER_MODEL"]
+WHISPER_DEVICE = os.environ["WHISPER_DEVICE"]
+WHISPER_COMPUTE_TYPE = os.environ["WHISPER_COMPUTE_TYPE"]
+
+# Language models for the extract job. Gemini answers on the free tier;
+# Claude takes over once that quota is spent (pipeline_shared/
+# select_public_LLM.py). The keys may be empty where no worker runs.
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+GEMINI_MODEL = os.environ["GEMINI_MODEL"]
+ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
+ANTHROPIC_MODEL = os.environ["ANTHROPIC_MODEL"]
 
 
 # Password validation
