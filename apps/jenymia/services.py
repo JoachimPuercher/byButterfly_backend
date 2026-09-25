@@ -257,26 +257,37 @@ def create_product_from_analysis(
     return product
 
 
-def publish_product(product: Product) -> None:
-    """Make a product public.
+def check_publishable(product: Product, ampel_score: int | None) -> None:
+    """Raise unless the product may go public.
 
-    The only place that writes is_published, published_at and
-    last_verified_at, so the rules for going live exist exactly once. The
-    database guards the same thing from the other side
+    The rules for going live exist exactly once, and both ways of publishing
+    use them: the admin action below and the checkbox on the product form.
+    The database guards the same thing from the other side
     (product_published_requires_score_and_date), but a refusal here names what
     is missing, while the constraint only reports a failed insert.
 
-    published_at is set on the first publication and never moved afterwards:
-    it feeds schema.org datePublished and the sitemap. last_verified_at is the
-    freshness signal and is renewed on every publication.
+    The score is passed separately because the admin form validates a value
+    the product does not carry yet.
     """
-    if product.ampel_score is None:
+    if product.pk is None:
+        raise ValueError("Save the product first, then publish it.")
+    if ampel_score is None:
         raise ValueError("A product without an ampel_score cannot be published.")
 
     present = set(product.translations.values_list("locale", flat=True))
     missing = [locale for locale in Locale.values if locale not in present]
     if missing:
         raise ValueError(f"Missing translations for: {', '.join(missing)}.")
+
+
+def publish_product(product: Product) -> None:
+    """Make a product public.
+
+    published_at is set on the first publication and never moved afterwards:
+    it feeds schema.org datePublished and the sitemap. last_verified_at is the
+    freshness signal and is renewed on every publication.
+    """
+    check_publishable(product, product.ampel_score)
 
     now = timezone.now()
     Product.objects.filter(pk=product.pk).update(

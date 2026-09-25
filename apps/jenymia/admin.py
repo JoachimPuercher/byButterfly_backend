@@ -1,12 +1,21 @@
+from django import forms
 from django.contrib import admin, messages
+from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 from . import services
 from .models import (
     AffiliateLink,
+    Author,
+    Badge,
+    BadgeTranslation,
+    Brand,
     Category,
     CategoryTranslation,
     DataCategory,
     DataCategoryTranslation,
+    LearningBadge,
+    LearningBadgeTranslation,
     Product,
     ProductFaq,
     ProductFaqTranslation,
@@ -219,7 +228,8 @@ class ProductImageInline(admin.TabularInline):
 
     model = ProductImage
     extra = 0
-    fields = ("sort_order", "key", "source", "is_primary")
+    fields = ("sort_order", "key", "source", "license_note", "is_primary")
+    show_change_link = True
 
 
 class AffiliateLinkInline(admin.TabularInline):
@@ -262,21 +272,41 @@ class DataCategoryInline(admin.TabularInline):
     show_change_link = True
 
 
+class ProductAdminForm(forms.ModelForm):
+    """Lets the publication fields be edited by hand without losing the
+    checks.
+
+    Ticking is_published here is the same act as running the publish action,
+    so it goes through the same rules (services.check_publishable). The two
+    dates are filled in when they are empty and left alone when they carry a
+    value, so a publication date can be corrected afterwards.
+    """
+
+    def clean(self):
+        cleaned = super().clean()
+        if not cleaned.get("is_published"):
+            return cleaned
+
+        try:
+            services.check_publishable(self.instance, cleaned.get("ampel_score"))
+        except ValueError as error:
+            raise ValidationError({"is_published": str(error)}) from None
+
+        now = timezone.now()
+        cleaned["published_at"] = cleaned.get("published_at") or now
+        cleaned["last_verified_at"] = cleaned.get("last_verified_at") or now
+        return cleaned
+
+
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
+    form = ProductAdminForm
     list_display = ("__str__", "brand", "ampel_score", "is_published", "published_at")
     list_filter = ("is_published", "ampel_score", "categories")
     search_fields = ("translations__title", "brand__name", "model_name", "gtin")
-    # Written by publish_product, never by hand: a checkbox here would be a
-    # second way to publish, with none of the checks.
-    readonly_fields = (
-        "is_published",
-        "published_at",
-        "last_verified_at",
-        "analysis",
-        "created_at",
-        "updated_at",
-    )
+    # Only the three the database fills itself; everything else on the model
+    # is editable here.
+    readonly_fields = ("id", "created_at", "updated_at")
     filter_horizontal = ("categories", "badges", "learning_badges")
     fieldsets = (
         (None, {"fields": ("brand", "model_name", "gtin", "author", "ampel_score")}),
@@ -298,9 +328,15 @@ class ProductAdmin(admin.ModelAdmin):
         ("Classification", {"fields": ("categories", "badges", "learning_badges")}),
         (
             "Publication",
-            {"fields": ("is_published", "published_at", "last_verified_at")},
+            {
+                "fields": ("is_published", "published_at", "last_verified_at"),
+                "description": (
+                    "Publishing needs a traffic light score and both "
+                    "translations. Empty dates are filled on publication."
+                ),
+            },
         ),
-        ("Meta", {"fields": ("analysis", "created_at", "updated_at")}),
+        ("Meta", {"fields": ("analysis", "id", "created_at", "updated_at")}),
     )
     inlines = (
         ProductTranslationInline,
@@ -403,3 +439,63 @@ class ImageTranslationInline(admin.TabularInline):
 class ProductImageAdmin(admin.ModelAdmin):
     list_display = ("key", "product", "source", "is_primary", "sort_order")
     inlines = (ImageTranslationInline,)
+
+
+# --- master data -----------------------------------------------------------
+#
+# Registered so the product form can reach them: Django only offers the "add"
+# and "edit" buttons next to a relation when the related model has an admin.
+# The pipeline creates brands, badges and learning badges on its own, so
+# without these pages there would be rows nobody can correct.
+
+
+@admin.register(Brand)
+class BrandAdmin(admin.ModelAdmin):
+    list_display = ("name", "slug", "logo_key")
+    search_fields = ("name", "slug")
+    prepopulated_fields = {"slug": ("name",)}
+    fields = ("name", "slug", "logo_key")
+
+
+@admin.register(Author)
+class AuthorAdmin(admin.ModelAdmin):
+    """The person who signs a published analysis - schema.org/Person, the
+    E-E-A-T signal. same_as holds profile URLs as a JSON list."""
+
+    list_display = ("name", "role", "slug")
+    search_fields = ("name", "slug")
+    prepopulated_fields = {"slug": ("name",)}
+    fields = ("name", "slug", "role", "bio", "credentials", "photo_key", "same_as")
+
+
+class BadgeTranslationInline(admin.TabularInline):
+    model = BadgeTranslation
+    extra = 2
+    fields = ("locale", "name", "description")
+
+
+@admin.register(Badge)
+class BadgeAdmin(admin.ModelAdmin):
+    """Test marks and properties (CE, GS, FSC, ...)."""
+
+    list_display = ("slug", "sort_order")
+    ordering = ("sort_order", "slug")
+    fields = ("slug", "sort_order")
+    inlines = (BadgeTranslationInline,)
+
+
+class LearningBadgeTranslationInline(admin.TabularInline):
+    model = LearningBadgeTranslation
+    extra = 2
+    fields = ("locale", "name")
+
+
+@admin.register(LearningBadge)
+class LearningBadgeAdmin(admin.ModelAdmin):
+    """Areas of development: coordination, logic, creativity, language,
+    fine-motor, social-emotional, concentration."""
+
+    list_display = ("slug", "sort_order")
+    ordering = ("sort_order", "slug")
+    fields = ("slug", "sort_order")
+    inlines = (LearningBadgeTranslationInline,)
