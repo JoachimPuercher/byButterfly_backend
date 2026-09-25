@@ -1,4 +1,4 @@
-version: toys-2026-09-25
+version: toys_learning-2026-09-25
 
 ## Produktgruppe: Spielen & Lernen
 

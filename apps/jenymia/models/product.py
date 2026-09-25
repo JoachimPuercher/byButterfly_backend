@@ -13,7 +13,7 @@ from django.db import models
 from apps.common.models import BaseModel
 
 from .base import TranslationBase
-from .lookups import Author, Badge, Brand, Category, LearningBadge, UsageContext
+from .lookups import Author, Badge, Brand, LearningBadge, MainCategory, SubCategory
 
 # Prices are stored as a plain amount. The currency is fixed for the whole
 # site and is emitted by the serializer, so it needs no column.
@@ -64,20 +64,19 @@ class Product(BaseModel):
     requires_account = models.BooleanField(default=False)
     is_child_certified = models.BooleanField(default=False)
 
-    # The one category this product belongs to first: it decided which
-    # pipeline analysed it, it is the breadcrumb and the canonical home for
-    # search engines, and it is what a listing filters on. Always also part
-    # of `categories`, which holds every further assignment for the hubs.
-    primary_category = models.ForeignKey(
-        Category, on_delete=models.PROTECT, related_name="primary_products"
+    # The product group this belongs to: it decided which prompt analysed it,
+    # it is the breadcrumb and the canonical home for search engines, and it
+    # is what a listing filters on. Exactly one, out of three.
+    primary_category = models.CharField(max_length=20, choices=MainCategory.choices)
+    # Any number, flat. This is how a product also appears under another main
+    # category without getting a second home.
+    sub_categories = models.ManyToManyField(
+        SubCategory, related_name="products", blank=True
     )
-    categories = models.ManyToManyField(Category, related_name="products", blank=True)
     badges = models.ManyToManyField(Badge, related_name="products", blank=True)
     learning_badges = models.ManyToManyField(
         LearningBadge, related_name="products", blank=True
     )
-    # Where it is used - independent of what it is (categories).
-    contexts = models.ManyToManyField(UsageContext, related_name="products", blank=True)
 
     # The analysis run this product came out of. Kept so every published
     # field can be traced back to the sources it was derived from.

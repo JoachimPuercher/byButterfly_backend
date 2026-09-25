@@ -23,14 +23,19 @@ PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
 
 def run_extract(order_id: str) -> None:
-    order = ProductToAnalyse.objects.select_related("category").get(pk=order_id)
+    order = ProductToAnalyse.objects.select_related("sub_category").get(pk=order_id)
 
-    # Everything that can fail is inside the try, including the pipeline
-    # lookup and the prompt files. An exception thrown before it would leave
-    # the order on text_extracted with an empty error, which in the admin is
+    # Everything that can fail is inside the try, including the prompt
+    # files. An exception thrown before it would leave the order on
+    # text_extracted with an empty error, which in the admin is
     # indistinguishable from a run that is still going.
     try:
-        pipeline = order.category.resolve_pipeline()
+        # The main category picks the prompt and the answer shape. A
+        # sub-category may override the wording without changing the shape.
+        pipeline = order.primary_category
+        prompt_name = (
+            order.sub_category.prompt_name if order.sub_category_id else ""
+        ) or pipeline
 
         sources = _collect_sources(order)
         if not sources:
@@ -41,7 +46,7 @@ def run_extract(order_id: str) -> None:
             )
             return
 
-        prompt, prompt_version = build_prompt(pipeline, sources)
+        prompt, prompt_version = build_prompt(prompt_name, pipeline, sources)
         answer, provider, model = analyse(prompt, pipeline)
         data = schema.parse(answer, pipeline)
         product = services.create_product_from_analysis(order, data)
@@ -93,8 +98,10 @@ def _collect_sources(order: ProductToAnalyse) -> list[dict]:
     return sources
 
 
-def build_prompt(pipeline: str, sources: list[dict]) -> tuple[str, str]:
-    """Base prompt plus the fragment of this pipeline.
+def build_prompt(
+    prompt_name: str, pipeline: str, sources: list[dict]
+) -> tuple[str, str]:
+    """Base prompt plus the fragment of this product group.
 
     Everything that is always collected lives in _base.md; the group file
     adds what only this group needs and may sharpen the base rules, because
@@ -102,7 +109,7 @@ def build_prompt(pipeline: str, sources: list[dict]) -> tuple[str, str]:
     that gets stored with the result.
     """
     base, base_version = _read_prompt("_base.md")
-    group, group_version = _read_prompt(f"{pipeline}.md")
+    group, group_version = _read_prompt(f"{prompt_name}.md")
 
     fields = json.dumps(schema.json_schema(pipeline), indent=2, ensure_ascii=False)
     rendered_sources = json.dumps(sources, indent=2, ensure_ascii=False)

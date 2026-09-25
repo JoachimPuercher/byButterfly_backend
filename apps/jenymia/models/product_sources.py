@@ -1,7 +1,7 @@
 """The analysis order and its raw material.
 
 ProductToAnalyse is what gets entered in the admin: a product name, a brand,
-a category and a handful of URLs. The pipeline turns it into a Product.
+a main category and a handful of URLs. The pipeline turns it into a Product.
 
 YoutubeUrl and WebUrl hold the raw material - transcripts, page text and
 metadata. That text never leaves the backend: it is a reproduction of
@@ -17,7 +17,7 @@ from django.db import models
 from apps.common.models import BaseModel
 
 from .base import SourceType
-from .lookups import Category
+from .lookups import MainCategory, SubCategory
 
 
 class ProductToAnalyse(BaseModel):
@@ -34,10 +34,18 @@ class ProductToAnalyse(BaseModel):
 
     title = models.CharField(max_length=200)
     brand = models.CharField(max_length=100)
-    # Picks the pipeline: the prompt used is the one of the root category
-    # (see Category.resolve_pipeline). Chosen by hand, never guessed.
-    category = models.ForeignKey(
-        Category, on_delete=models.PROTECT, related_name="analysis_orders"
+    # Picks the prompt, and becomes the product's home. Chosen by hand,
+    # never guessed by the analysis.
+    primary_category = models.CharField(max_length=20, choices=MainCategory.choices)
+    # Optional. Only relevant when a group of products inside a main category
+    # needs its own wording: if this sub-category carries a prompt_name, that
+    # file is used instead of the main category's.
+    sub_category = models.ForeignKey(
+        SubCategory,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="analysis_orders",
     )
     status = models.CharField(
         max_length=20,

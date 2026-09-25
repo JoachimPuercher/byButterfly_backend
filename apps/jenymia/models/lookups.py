@@ -1,11 +1,15 @@
-"""Master data: brands, categories, badges, authors.
+"""Master data: brands, sub-categories, badges, authors.
 
 These tables are small, change rarely and are referenced by products.
 They use PROTECT on delete: removing a brand that products point at must
 fail loudly instead of silently deleting the products.
+
+The three main categories are deliberately NOT a table: they are strategy,
+fixed in code, and each one names the prompt file that analyses it. Their
+display names live in the frontend, because three values that change only
+with a deploy do not need a translation row each.
 """
 
-from django.core.exceptions import ValidationError
 from django.db import models
 
 from apps.common.models import BaseModel
@@ -13,13 +17,17 @@ from apps.common.models import BaseModel
 from .base import TranslationBase
 
 
-class Pipeline(models.TextChoices):
-    """Analysis pipelines. The value is also the file name of the prompt
-    fragment in pipeline_shared/prompts/, e.g. "toys" -> prompts/toys.md."""
+class MainCategory(models.TextChoices):
+    """The three product groups. One per product, and the one that decides
+    which prompt analyses it: the value is the file name in
+    pipeline_shared/prompts/, e.g. "toys_learning" -> toys_learning.md.
 
-    TOYS = "toys", "Spielen & Lernen"
-    SCHOOL = "school", "Schule & Alltag"
-    TECH = "tech", "Tech & Sicherheit"
+    The labels are German because the admin is German; what a visitor sees
+    is translated in the frontend from the value."""
+
+    TOYS_LEARNING = "toys_learning", "Spielen & Lernen"
+    SCHOOL_EVERYDAY = "school_everyday", "Schule & Alltag"
+    TECH_SAFETY = "tech_safety", "Tech & Sicherheit"
 
 
 class Brand(BaseModel):
@@ -36,56 +44,48 @@ class Brand(BaseModel):
         return self.name
 
 
-class Category(BaseModel):
-    """Two levels: a top level that carries the pipeline, and sub-categories
-    that inherit it from their parent."""
+class SubCategory(BaseModel):
+    """A flat list, not a tree. A product keeps one main category as its home
+    and carries any number of sub-categories, and those are what make it show
+    up elsewhere: a drinking bottle is "trinkflasche", "freizeit" and
+    "schule" at once. A parent would force each of them under exactly one
+    main category and the multiple visibility would be gone.
 
-    parent = models.ForeignKey(
-        "self",
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True,
-        related_name="children",
-    )
-    # Only set on top-level categories; blank on sub-categories.
-    pipeline = models.CharField(max_length=10, choices=Pipeline.choices, blank=True)
+    Proposed by the analysis, corrected by hand before a product goes public.
+    """
+
+    # Empty means: use the prompt of the product's main category. Set it to
+    # a file name in pipeline_shared/prompts/ when a group of products needs
+    # its own wording. The answer keeps the shape of the main category.
+    prompt_name = models.CharField(max_length=60, blank=True)
     sort_order = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
         ordering = ("sort_order",)
-        verbose_name_plural = "categories"
+        verbose_name_plural = "sub-categories"
 
     def __str__(self) -> str:
         translation = self.translations.first()
         return translation.name if translation else str(self.pk)
 
-    def resolve_pipeline(self) -> str:
-        """The pipeline of this category, or the one of its top-level parent.
 
-        Raises instead of guessing: an analysis run with the wrong prompt is
-        worse than one that stops."""
-        pipeline = self.pipeline or (self.parent.pipeline if self.parent_id else "")
-        if not pipeline:
-            raise ValidationError(f"No pipeline set for category {self.pk}.")
-        return pipeline
-
-
-class CategoryTranslation(TranslationBase):
-    category = models.ForeignKey(
-        Category, on_delete=models.CASCADE, related_name="translations"
+class SubCategoryTranslation(TranslationBase):
+    sub_category = models.ForeignKey(
+        SubCategory, on_delete=models.CASCADE, related_name="translations"
     )
-    # Category pages live under /<locale>/<slug>/, so the slug is per language.
+    # Sub-category pages live under /<locale>/<slug>/, so the slug is per
+    # language.
     slug = models.SlugField(max_length=120)
     name = models.CharField(max_length=100)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["category", "locale"],
-                name="category_one_translation_per_locale",
+                fields=["sub_category", "locale"],
+                name="sub_category_one_translation_per_locale",
             ),
             models.UniqueConstraint(
-                fields=["locale", "slug"], name="category_slug_unique_per_locale"
+                fields=["locale", "slug"], name="sub_category_slug_unique_per_locale"
             ),
         ]
 
@@ -144,38 +144,6 @@ class LearningBadgeTranslation(TranslationBase):
             models.UniqueConstraint(
                 fields=["learning_badge", "locale"],
                 name="learning_badge_one_translation_per_locale",
-            )
-        ]
-
-
-class UsageContext(BaseModel):
-    """Where a product is used: school, kindergarten, leisure, on the go, at
-    home. A second list next to the category tree, because "where" is a
-    different question from "what": a drinking bottle is one product type
-    used in four places. Filled by the analysis like badges, corrected in
-    the admin before publication."""
-
-    slug = models.SlugField(max_length=60, unique=True)
-    sort_order = models.PositiveSmallIntegerField(default=0)
-
-    class Meta:
-        ordering = ("sort_order",)
-
-    def __str__(self) -> str:
-        return self.slug
-
-
-class UsageContextTranslation(TranslationBase):
-    usage_context = models.ForeignKey(
-        UsageContext, on_delete=models.CASCADE, related_name="translations"
-    )
-    name = models.CharField(max_length=100)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["usage_context", "locale"],
-                name="usage_context_one_translation_per_locale",
             )
         ]
 

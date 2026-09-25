@@ -10,8 +10,6 @@ from .models import (
     Badge,
     BadgeTranslation,
     Brand,
-    Category,
-    CategoryTranslation,
     DataCategory,
     DataCategoryTranslation,
     LearningBadge,
@@ -28,8 +26,8 @@ from .models import (
     ProductSpecTranslation,
     ProductToAnalyse,
     ProductTranslation,
-    UsageContext,
-    UsageContextTranslation,
+    SubCategory,
+    SubCategoryTranslation,
     WebUrl,
     YoutubeUrl,
 )
@@ -71,13 +69,13 @@ class ProductToAnalyseAdmin(admin.ModelAdmin):
     list_display = (
         "title",
         "brand",
-        "category",
+        "primary_category",
         "status",
         "analysed_by",
         "creator",
         "last_analysed_at",
     )
-    list_filter = ("status", "analysed_by", "category")
+    list_filter = ("status", "analysed_by", "primary_category")
     search_fields = ("title", "brand")
     ordering = ("-created_at",)
     readonly_fields = (
@@ -94,9 +92,11 @@ class ProductToAnalyseAdmin(admin.ModelAdmin):
         "updated_at",
     )
     fieldsets = (
-        # The category decides which pipeline runs, so it is chosen here by
-        # hand and never guessed by the analysis.
-        (None, {"fields": ("title", "brand", "category")}),
+        # The main category decides which prompt runs and becomes the
+        # product's home, so it is chosen here by hand and never guessed by
+        # the analysis. The sub-category is optional and only needed when a
+        # group of products inside it has its own prompt.
+        (None, {"fields": ("title", "brand", "primary_category", "sub_category")}),
         (
             "Analysis",
             {
@@ -142,7 +142,7 @@ class ProductToAnalyseAdmin(admin.ModelAdmin):
         self.message_user(request, f"{started} order(s) sent to the analysis.")
 
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related("creator", "category")
+        return super().get_queryset(request).select_related("creator", "sub_category")
 
     def save_model(self, request, obj, form, change):
         # Entries made here are always admin-created; the creator is the
@@ -160,31 +160,28 @@ class ProductToAnalyseAdmin(admin.ModelAdmin):
             services.request_analysis(form.instance)
 
 
-class CategoryTranslationInline(admin.TabularInline):
-    model = CategoryTranslation
+class SubCategoryTranslationInline(admin.TabularInline):
+    model = SubCategoryTranslation
     extra = 2
     fields = ("locale", "slug", "name")
 
 
-@admin.register(Category)
-class CategoryAdmin(admin.ModelAdmin):
-    """Top-level categories are entered here with their pipeline; the
-    analysis creates sub-categories underneath and they are corrected here
-    before a product goes public."""
+@admin.register(SubCategory)
+class SubCategoryAdmin(admin.ModelAdmin):
+    """The analysis proposes these; they are corrected here before a product
+    goes public. Flat, so one sub-category can sit on products of different
+    main categories - that is what makes a product visible in more than one
+    group.
 
-    list_display = ("__str__", "parent", "pipeline", "sort_order")
-    list_filter = ("pipeline",)
-    ordering = ("parent__id", "sort_order")
-    fields = ("parent", "pipeline", "sort_order")
-    inlines = (CategoryTranslationInline,)
+    prompt_name stays empty unless this group needs its own prompt file."""
+
+    list_display = ("__str__", "prompt_name", "sort_order")
+    ordering = ("sort_order",)
+    fields = ("prompt_name", "sort_order")
+    inlines = (SubCategoryTranslationInline,)
 
     def get_queryset(self, request):
-        return (
-            super()
-            .get_queryset(request)
-            .select_related("parent")
-            .prefetch_related("translations")
-        )
+        return super().get_queryset(request).prefetch_related("translations")
 
 
 # --- product ---------------------------------------------------------------
@@ -290,14 +287,6 @@ class ProductAdminForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
-
-        # The primary category is by definition one of the product's
-        # categories; ticking it twice would be busywork.
-        primary = cleaned.get("primary_category")
-        categories = cleaned.get("categories")
-        if primary and categories is not None and primary not in categories:
-            cleaned["categories"] = [*categories, primary]
-
         if not cleaned.get("is_published"):
             return cleaned
 
@@ -323,12 +312,17 @@ class ProductAdmin(admin.ModelAdmin):
         "is_published",
         "published_at",
     )
-    list_filter = ("is_published", "ampel_score", "primary_category", "categories")
+    list_filter = (
+        "is_published",
+        "ampel_score",
+        "primary_category",
+        "sub_categories",
+    )
     search_fields = ("translations__title", "brand__name", "model_name", "gtin")
     # Only the three the database fills itself; everything else on the model
     # is editable here.
     readonly_fields = ("id", "created_at", "updated_at")
-    filter_horizontal = ("categories", "badges", "learning_badges", "contexts")
+    filter_horizontal = ("sub_categories", "badges", "learning_badges")
     fieldsets = (
         (None, {"fields": ("brand", "model_name", "gtin", "author", "ampel_score")}),
         (
@@ -361,14 +355,14 @@ class ProductAdmin(admin.ModelAdmin):
             {
                 "fields": (
                     "primary_category",
-                    "categories",
-                    "contexts",
+                    "sub_categories",
                     "badges",
                     "learning_badges",
                 ),
                 "description": (
-                    "The primary category is the breadcrumb and the canonical "
-                    "home; categories lists every hub the product appears on."
+                    "The main category is the breadcrumb and the canonical "
+                    "home, one of three. Sub-categories are flat and are what "
+                    "make the product show up in another group as well."
                 ),
             },
         ),
@@ -400,7 +394,7 @@ class ProductAdmin(admin.ModelAdmin):
         return (
             super()
             .get_queryset(request)
-            .select_related("brand", "author", "primary_category")
+            .select_related("brand", "author")
             .prefetch_related("translations")
         )
 
@@ -545,21 +539,3 @@ class LearningBadgeAdmin(admin.ModelAdmin):
     ordering = ("sort_order", "slug")
     fields = ("slug", "sort_order")
     inlines = (LearningBadgeTranslationInline,)
-
-
-class UsageContextTranslationInline(admin.TabularInline):
-    model = UsageContextTranslation
-    extra = 2
-    fields = ("locale", "name")
-
-
-@admin.register(UsageContext)
-class UsageContextAdmin(admin.ModelAdmin):
-    """Where products are used: schule, kindergarten, freizeit, unterwegs,
-    zuhause. The analysis picks from and adds to this list; it is corrected
-    here before a product goes public."""
-
-    list_display = ("slug", "sort_order")
-    ordering = ("sort_order", "slug")
-    fields = ("slug", "sort_order")
-    inlines = (UsageContextTranslationInline,)

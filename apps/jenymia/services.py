@@ -18,8 +18,6 @@ from .models import (
     Badge,
     BadgeTranslation,
     Brand,
-    Category,
-    CategoryTranslation,
     DataCategory,
     DataCategoryTranslation,
     ExtractStatus,
@@ -37,8 +35,8 @@ from .models import (
     ProductToAnalyse,
     ProductTranslation,
     SourceType,
-    UsageContext,
-    UsageContextTranslation,
+    SubCategory,
+    SubCategoryTranslation,
 )
 from .selectors import product_slug_taken
 
@@ -207,9 +205,8 @@ def create_product_from_analysis(
     product = Product.objects.create(
         brand=brand,
         analysis=order,
-        # What was chosen on the order is what analysed it; the admin may move
-        # it down to a sub-category afterwards.
-        primary_category=order.category,
+        # What was chosen on the order is what analysed it.
+        primary_category=order.primary_category,
         is_published=False,
         **_clean(
             Product,
@@ -238,17 +235,12 @@ def create_product_from_analysis(
         ),
     )
 
-    # The primary category was chosen by hand on the order and decided which
-    # prompt ran; it is always part of the assignments below. Sub-categories,
-    # badges, learning badges and contexts come out of the analysis and are
-    # created here if they are new - everything the analysis proposes is
-    # reviewed in the admin before the product goes public.
-    product.categories.set(
-        [
-            order.category,
-            *_resolve_subcategories(order.category, data.get("categories", [])),
-        ]
-    )
+    # The main category is a value on the product, not a row, so only the
+    # sub-categories go into a relation here. Sub-categories, badges and
+    # learning badges come out of the analysis and are created if they are
+    # new - everything the analysis proposes is reviewed in the admin before
+    # the product goes public.
+    product.sub_categories.set(_resolve_subcategories(data.get("sub_categories", [])))
     product.badges.set(
         _resolve_lookup(Badge, BadgeTranslation, "badge", data.get("badges", []))
     )
@@ -258,14 +250,6 @@ def create_product_from_analysis(
             LearningBadgeTranslation,
             "learning_badge",
             data.get("learning_badges", []),
-        )
-    )
-    product.contexts.set(
-        _resolve_lookup(
-            UsageContext,
-            UsageContextTranslation,
-            "usage_context",
-            data.get("contexts", []),
         )
     )
 
@@ -409,12 +393,12 @@ def _create_sources(product: Product, order: ProductToAnalyse) -> None:
         )
 
 
-def _resolve_subcategories(main: Category, entries: list[dict]) -> list[Category]:
-    """Reuse the category whose slug already exists in any language,
-    otherwise create it under the main category.
+def _resolve_subcategories(entries: list[dict]) -> list[SubCategory]:
+    """Reuse the sub-category whose slug already exists in any language,
+    otherwise create it.
 
-    A new category inherits the pipeline from its parent, so its own
-    pipeline field stays empty.
+    Flat: a sub-category belongs to no main category, which is what lets the
+    same one sit on products of different groups.
     """
     categories = []
     for entry in entries:
@@ -433,31 +417,24 @@ def _resolve_subcategories(main: Category, entries: list[dict]) -> list[Category
             continue
         existing = next(
             (
-                t.category
+                t.sub_category
                 for locale, slug in slugs.items()
-                for t in CategoryTranslation.objects.filter(
+                for t in SubCategoryTranslation.objects.filter(
                     locale=locale, slug=slug
-                ).select_related("category")
+                ).select_related("sub_category")
             ),
             None,
         )
-        if existing and existing.parent_id is None:
-            # A main category is not a sub-category: attaching the product
-            # there would file it under a foreign hub, and creating a second
-            # category with that slug would break the locale/slug constraint.
-            logger.warning(
-                "Dropping sub-category proposal %r: that slug is a main category.",
-                slugs,
-            )
-            continue
         if existing:
             categories.append(existing)
             continue
 
-        category = Category.objects.create(parent=main)
+        category = SubCategory.objects.create()
         for locale, fields in translations.items():
-            CategoryTranslation.objects.create(
-                category=category, locale=locale, **_clean(CategoryTranslation, fields)
+            SubCategoryTranslation.objects.create(
+                sub_category=category,
+                locale=locale,
+                **_clean(SubCategoryTranslation, fields),
             )
         categories.append(category)
     return categories
@@ -466,8 +443,8 @@ def _resolve_subcategories(main: Category, entries: list[dict]) -> list[Category
 def _resolve_lookup(
     model, translation_model, fk_name: str, entries: list[dict]
 ) -> list:
-    """Create the badges, learning badges or contexts the analysis proposes,
-    keep the ones that exist.
+    """Create the badges or learning badges the analysis proposes, keep the
+    ones that exist.
 
     A name that exists is never overwritten - a correction made by hand in
     the admin has to survive the next analysis. A language that is *missing*

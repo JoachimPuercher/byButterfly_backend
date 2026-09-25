@@ -12,7 +12,7 @@ block per locale, and the list blocks next to them.
 
 Not part of the answer, on purpose: the public source list (built from the
 order's own URLs, see services), images and affiliate links (entered by hand),
-the main category (set on the order).
+the main category (one of three, set on the order).
 """
 
 import logging
@@ -30,7 +30,7 @@ from pydantic import (
     model_validator,
 )
 
-from apps.jenymia.models import DataCategory, Pipeline, ProductProsCon
+from apps.jenymia.models import DataCategory, MainCategory, ProductProsCon
 
 logger = logging.getLogger(__name__)
 
@@ -241,19 +241,19 @@ class Translated(BaseModel, Generic[T]):
 # --- repeating blocks -----------------------------------------------------
 
 
-class CategoryText(Block):
+class SubCategoryText(Block):
     slug: Slug120 = Field(
         description="URL segment, lower case, max 120 characters, e.g. 'holz-stapelspielzeug'."
     )
     name: str = Field(max_length=100, description="Display name of the sub-category.")
 
 
-class CategoryIn(Block):
+class SubCategoryIn(Block):
     """The main category is already set on the order and must not be repeated.
     Propose narrow, reusable groups; an existing sub-category with the same
     German slug is reused instead of created twice."""
 
-    translations: Translated[CategoryText]
+    translations: Translated[SubCategoryText]
 
 
 class BadgeText(Block):
@@ -291,23 +291,6 @@ class LearningBadgeIn(Block):
         )
     )
     translations: Translated[LearningBadgeText]
-
-
-class UsageContextText(Block):
-    name: str = Field(max_length=100, description="Name of the context, e.g. 'Schule'.")
-
-
-class UsageContextIn(Block):
-    """Where the product is used. Independent of the category: a drinking
-    bottle is one product type used in several places."""
-
-    slug: Slug60 = Field(
-        description=(
-            "Stable lower case slug, max 60 characters. Use these whenever they "
-            "fit: schule, kindergarten, freizeit, unterwegs, zuhause."
-        )
-    )
-    translations: Translated[UsageContextText]
 
 
 class SpecText(Block):
@@ -497,9 +480,8 @@ class BaseAnalysis(Block):
         ),
     )
 
-    categories: list[CategoryIn] = []
+    sub_categories: list[SubCategoryIn] = []
     badges: list[BadgeIn] = []
-    contexts: list[UsageContextIn] = []
     specs: list[SpecIn] = []
     faqs: list[FaqIn] = []
     pros_cons: list[ProsConIn] = []
@@ -569,9 +551,9 @@ class TechAnalysis(BaseAnalysis):
 # Indexing with an unknown pipeline raises, which is wanted: a typo must not
 # produce a base-only schema that validates.
 ANALYSIS_MODELS: dict[str, type[BaseAnalysis]] = {
-    Pipeline.TOYS: ToysAnalysis,
-    Pipeline.SCHOOL: SchoolAnalysis,
-    Pipeline.TECH: TechAnalysis,
+    MainCategory.TOYS_LEARNING: ToysAnalysis,
+    MainCategory.SCHOOL_EVERYDAY: SchoolAnalysis,
+    MainCategory.TECH_SAFETY: TechAnalysis,
 }
 
 

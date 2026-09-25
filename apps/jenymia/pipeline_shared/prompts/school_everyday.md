@@ -1,4 +1,4 @@
-version: school-2026-09-25
+version: school_everyday-2026-09-25
 
 ## Produktgruppe: Schule & Alltag
 

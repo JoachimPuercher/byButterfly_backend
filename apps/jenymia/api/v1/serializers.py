@@ -17,7 +17,6 @@ from apps.jenymia.models import (
     Author,
     Badge,
     Brand,
-    Category,
     DataCategory,
     LearningBadge,
     Product,
@@ -26,7 +25,7 @@ from apps.jenymia.models import (
     ProductProsCon,
     ProductSource,
     ProductSpec,
-    UsageContext,
+    SubCategory,
 )
 
 
@@ -83,15 +82,15 @@ class AuthorSerializer(serializers.ModelSerializer):
         return media_url(author.photo_key)
 
 
-class CategorySerializer(TranslatedMixin, serializers.ModelSerializer):
-    """parent lets the frontend build the breadcrumb chain from the
-    categories it already has, without another request."""
+class SubCategorySerializer(TranslatedMixin, serializers.ModelSerializer):
+    """Flat, so there is no chain to follow: slug and name in the requested
+    language are everything a filter chip or a hub link needs."""
 
     translated_fields = ("slug", "name")
 
     class Meta:
-        model = Category
-        fields = ("id", "parent")
+        model = SubCategory
+        fields = ("id",)
 
 
 class BadgeSerializer(TranslatedMixin, serializers.ModelSerializer):
@@ -99,14 +98,6 @@ class BadgeSerializer(TranslatedMixin, serializers.ModelSerializer):
 
     class Meta:
         model = Badge
-        fields = ("slug",)
-
-
-class UsageContextSerializer(TranslatedMixin, serializers.ModelSerializer):
-    translated_fields = ("name",)
-
-    class Meta:
-        model = UsageContext
         fields = ("slug",)
 
 
@@ -206,11 +197,9 @@ class ProductDetailSerializer(TranslatedMixin, serializers.ModelSerializer):
 
     brand = BrandSerializer()
     author = AuthorSerializer()
-    primary_category = CategorySerializer()
-    categories = CategorySerializer(many=True)
+    sub_categories = SubCategorySerializer(many=True)
     badges = BadgeSerializer(many=True)
     learning_badges = LearningBadgeSerializer(many=True)
-    contexts = UsageContextSerializer(many=True)
     images = ImageSerializer(many=True)
     primary_image = serializers.SerializerMethodField()
     sources = SourceSerializer(many=True)
@@ -243,11 +232,12 @@ class ProductDetailSerializer(TranslatedMixin, serializers.ModelSerializer):
             "is_child_certified",
             "brand",
             "author",
+            # The value, not an object: three fixed groups whose display name
+            # the frontend translates.
             "primary_category",
-            "categories",
+            "sub_categories",
             "badges",
             "learning_badges",
-            "contexts",
             "images",
             "primary_image",
             "sources",

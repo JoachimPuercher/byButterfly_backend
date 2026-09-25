@@ -1,4 +1,4 @@
-version: tech-2026-09-25
+version: tech_safety-2026-09-25
 
 ## Produktgruppe: Tech & Sicherheit
 
