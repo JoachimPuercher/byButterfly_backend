@@ -241,11 +241,41 @@ class Translated(BaseModel, Generic[T]):
 # --- repeating blocks -----------------------------------------------------
 
 
-class SubCategoryText(Block):
+class SubCategoryTextDe(Block):
     slug: Slug120 = Field(
-        description="URL segment, lower case, max 120 characters, e.g. 'holz-stapelspielzeug'."
+        description="German URL segment, lower case, max 120 characters, e.g. 'holz-stapelspielzeug'."
     )
-    name: str = Field(max_length=100, description="Display name of the sub-category.")
+    name: str = Field(
+        max_length=100, description="German display name of the sub-category."
+    )
+
+
+class SubCategoryTextEn(Block):
+    slug: Slug120 = Field(
+        description=(
+            "English URL segment: the translation of the German slug, never a "
+            "copy of it. Lower case, max 120 characters, e.g. "
+            "'wooden-stacking-toy' for 'holz-stapelspielzeug'."
+        )
+    )
+    name: str = Field(
+        max_length=100, description="English display name of the sub-category."
+    )
+
+
+class SubCategoryTranslations(BaseModel):
+    """Like Translated, but with a separate block per language.
+
+    The sub-category slug is the only one that exists once per locale, so it
+    is also the only one that has to be translated. A shared block would show
+    the model the German example under the English key, which is how German
+    slugs ended up in the English rows.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    de: SubCategoryTextDe
+    en: SubCategoryTextEn
 
 
 class SubCategoryIn(Block):
@@ -253,7 +283,7 @@ class SubCategoryIn(Block):
     Propose narrow, reusable groups; an existing sub-category with the same
     German slug is reused instead of created twice."""
 
-    translations: Translated[SubCategoryText]
+    translations: SubCategoryTranslations
 
 
 class BadgeText(Block):
