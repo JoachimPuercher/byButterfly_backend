@@ -16,7 +16,7 @@ behind the same youtube_text(); the shared pipeline does not change.
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -124,7 +124,7 @@ def fetch(url: str) -> YoutubeSource:
 
 
 def _parse_upload_date(value: str | None) -> date | None:
-    """yt-dlp reports the date as YYYYMMDD."""
+    """yt-dlp reports the date as YYYYMMDD, which is the ISO basic format."""
     if not value:
         return None
-    return datetime.strptime(value, "%Y%m%d").date()
+    return date.fromisoformat(value)

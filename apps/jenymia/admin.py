@@ -164,7 +164,12 @@ class CategoryAdmin(admin.ModelAdmin):
     inlines = (CategoryTranslationInline,)
 
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related("parent").prefetch_related("translations")
+        return (
+            super()
+            .get_queryset(request)
+            .select_related("parent")
+            .prefetch_related("translations")
+        )
 
 
 # --- product ---------------------------------------------------------------

@@ -54,7 +54,7 @@ def run_ingest(order_id: str) -> None:
         _ingest_all_sources(order_id)
     except IngestError:
         raise
-    except Exception as error:  # noqa: BLE001 - the order must record why it stopped
+    except Exception as error:
         logger.exception("Ingest failed for order %s", order_id)
         order = ProductToAnalyse.objects.filter(pk=order_id).first()
         if order is None:
@@ -104,7 +104,7 @@ def _ingest_one(source, handler, transient: list[str], permanent: list[str]) -> 
         logger.warning("Source rejected for good: %s (%s)", source.url, error)
         services.save_source_error(source, f"{type(error).__name__}: {error}")
         permanent.append(f"{source.url}: {error}")
-    except Exception as error:  # noqa: BLE001 - one bad source must not stop the rest
+    except Exception as error:
         logger.exception("Extraction failed for %s", source.url)
         services.save_source_error(source, f"{type(error).__name__}: {error}")
         transient.append(f"{source.url}: {error}")

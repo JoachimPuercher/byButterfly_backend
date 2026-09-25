@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 # take precedence; load_dotenv does not override them.
 load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 
-from .base import *  # noqa: E402, F403
+from .base import *
 
 DEBUG = True
 

@@ -371,7 +371,9 @@ def _resolve_subcategories(main: Category, entries: list[dict]) -> list[Category
     return categories
 
 
-def _resolve_lookup(model, translation_model, fk_name: str, entries: list[dict]) -> list:
+def _resolve_lookup(
+    model, translation_model, fk_name: str, entries: list[dict]
+) -> list:
     """Create the badges or learning badges the analysis proposes, keep the
     ones that exist.
 

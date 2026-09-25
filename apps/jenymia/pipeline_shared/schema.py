@@ -109,7 +109,9 @@ class Translated(BaseModel, Generic[T]):
 
 
 class CategoryText(Block):
-    slug: Slug = Field(description="URL segment, lower case, e.g. 'holz-stapelspielzeug'.")
+    slug: Slug = Field(
+        description="URL segment, lower case, e.g. 'holz-stapelspielzeug'."
+    )
     name: str = Field(max_length=100, description="Display name of the sub-category.")
 
 
@@ -122,7 +124,9 @@ class CategoryIn(Block):
 
 
 class BadgeText(Block):
-    name: str = Field(max_length=100, description="Name of the mark, e.g. 'CE-Kennzeichnung'.")
+    name: str = Field(
+        max_length=100, description="Name of the mark, e.g. 'CE-Kennzeichnung'."
+    )
     description: str = Field(default="", description="One sentence on what it means.")
 
 
@@ -130,12 +134,16 @@ class BadgeIn(Block):
     """Test marks and properties proven by a source. Reuse an existing slug
     whenever the mark is the same one."""
 
-    slug: Slug = Field(description="Stable lower case slug, e.g. 'ce', 'gs', 'fsc', 'bpa-free'.")
+    slug: Slug = Field(
+        description="Stable lower case slug, e.g. 'ce', 'gs', 'fsc', 'bpa-free'."
+    )
     translations: Translated[BadgeText]
 
 
 class LearningBadgeText(Block):
-    name: str = Field(max_length=100, description="Name of the area, e.g. 'Feinmotorik'.")
+    name: str = Field(
+        max_length=100, description="Name of the area, e.g. 'Feinmotorik'."
+    )
 
 
 class LearningBadgeIn(Block):
@@ -153,17 +161,23 @@ class LearningBadgeIn(Block):
 
 
 class SpecText(Block):
-    value: str = Field(max_length=300, description="The value in this language, e.g. 'Holz'.")
+    value: str = Field(
+        max_length=300, description="The value in this language, e.g. 'Holz'."
+    )
 
 
 class SpecIn(Block):
-    key: str = Field(max_length=60, description="Untranslated, stable key, e.g. 'material'.")
+    key: str = Field(
+        max_length=60, description="Untranslated, stable key, e.g. 'material'."
+    )
     sort_order: int = 0
     translations: Translated[SpecText]
 
 
 class FaqText(Block):
-    question: str = Field(max_length=300, description="A question parents actually ask.")
+    question: str = Field(
+        max_length=300, description="A question parents actually ask."
+    )
     answer: str = Field(description="Two to four sentences.")
 
 
@@ -173,7 +187,9 @@ class FaqIn(Block):
 
 
 class ProsConText(Block):
-    text: str = Field(max_length=300, description="One advantage or disadvantage, in a few words.")
+    text: str = Field(
+        max_length=300, description="One advantage or disadvantage, in a few words."
+    )
 
 
 class ProsConIn(Block):
@@ -216,8 +232,12 @@ class BaseText(Block):
             "'Duplo Steinebox'. The page shows brand, title and model together."
         ),
     )
-    hook: str = Field(max_length=300, description="One sentence that makes a parent read on.")
-    description_short: str = Field(description="Two to three sentences for the product card.")
+    hook: str = Field(
+        max_length=300, description="One sentence that makes a parent read on."
+    )
+    description_short: str = Field(
+        description="Two to three sentences for the product card."
+    )
     description_detail: str = Field(description="The full review text.")
     meta_title: str = Field(max_length=70, description="SEO title, 50-60 characters.")
     meta_description: str = Field(
@@ -229,9 +249,12 @@ class BaseText(Block):
             "the rest of the page. This is the block AI search engines quote."
         )
     )
-    verdict: str = Field(max_length=300, description="One quotable sentence with the verdict.")
+    verdict: str = Field(
+        max_length=300, description="One quotable sentence with the verdict."
+    )
     question_headline: str = Field(
-        max_length=200, description="The headline phrased as the question a parent would type."
+        max_length=200,
+        description="The headline phrased as the question a parent would type.",
     )
 
 
@@ -265,7 +288,8 @@ class BaseAnalysis(Block):
     only they need and narrow the translation block."""
 
     brand: str = Field(
-        max_length=100, description="Manufacturer name, exactly as written on the product."
+        max_length=100,
+        description="Manufacturer name, exactly as written on the product.",
     )
     model_name: str = Field(
         default="",
@@ -284,22 +308,30 @@ class BaseAnalysis(Block):
         description="Overall verdict: 1 = red, 2 = yellow, 3 = green. Criteria are in the prompt.",
     )
     price_current: Price = Field(
-        default=None, description="Current price in EUR as a decimal string, e.g. '29.99', or null."
+        default=None,
+        description="Current price in EUR as a decimal string, e.g. '29.99', or null.",
     )
     price_original: Price = Field(
         default=None, description="List price before discount, same format, or null."
     )
     age_min_months: int | None = Field(
-        default=None, ge=0, description="Lower end of the suitable age in months, or null."
+        default=None,
+        ge=0,
+        description="Lower end of the suitable age in months, or null.",
     )
     age_max_months: int | None = Field(
-        default=None, ge=0, description="Upper end of the suitable age in months, or null."
+        default=None,
+        ge=0,
+        description="Upper end of the suitable age in months, or null.",
     )
     usage_lifespan_months: int | None = Field(
-        default=None, ge=0, description="How many months it stays useful as the child grows."
+        default=None,
+        ge=0,
+        description="How many months it stays useful as the child grows.",
     )
     manufactured_in_country: Country = Field(
-        default="", description="ISO 3166-1 alpha-2 country of manufacture, e.g. 'DE', or ''."
+        default="",
+        description="ISO 3166-1 alpha-2 country of manufacture, e.g. 'DE', or ''.",
     )
 
     categories: list[CategoryIn] = []
