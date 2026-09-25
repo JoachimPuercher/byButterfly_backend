@@ -44,7 +44,7 @@ def run_extract(order_id: str) -> None:
         prompt, prompt_version = build_prompt(pipeline, sources)
         data = schema.parse(analyse(prompt, pipeline), pipeline)
         product = services.create_product_from_analysis(order, data)
-    except Exception as error:  # noqa: BLE001 - the order must record why it stopped
+    except Exception as error:
         logger.exception("Analysis failed for order %s", order_id)
         services.set_order_status(
             order,
@@ -132,6 +132,6 @@ def analyse(prompt: str, pipeline: str) -> str:
     generated and checked again afterwards. Which provider answers is decided
     in select_public_LLM.
     """
-    from .select_public_LLM import ask
+    from .select_public_llm import ask
 
     return ask(prompt, schema.json_schema(pipeline))

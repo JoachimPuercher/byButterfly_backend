@@ -164,7 +164,7 @@ WHISPER_COMPUTE_TYPE = os.environ["WHISPER_COMPUTE_TYPE"]
 
 # Language models for the extract job. Gemini answers on the free tier;
 # Claude takes over once that quota is spent (pipeline_shared/
-# select_public_LLM.py). The keys may be empty where no worker runs.
+# select_public_llm.py). The keys may be empty where no worker runs.
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 GEMINI_MODEL = os.environ["GEMINI_MODEL"]
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
