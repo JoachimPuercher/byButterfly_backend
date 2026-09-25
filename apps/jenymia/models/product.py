@@ -13,7 +13,7 @@ from django.db import models
 from apps.common.models import BaseModel
 
 from .base import TranslationBase
-from .lookups import Author, Badge, Brand, Category, LearningBadge
+from .lookups import Author, Badge, Brand, Category, LearningBadge, UsageContext
 
 # Prices are stored as a plain amount. The currency is fixed for the whole
 # site and is emitted by the serializer, so it needs no column.
@@ -37,12 +37,15 @@ class Product(BaseModel):
     # Traffic light verdict: 1 = red, 2 = yellow, 3 = green.
     ampel_score = models.PositiveSmallIntegerField(null=True, blank=True)
 
-    price_current = models.DecimalField(
+    # The manufacturer's own list price, read off the manufacturer page - not
+    # a shop price, which changes daily and nobody here maintains. It is shown
+    # next to the shop buttons as a reference and is deliberately kept out of
+    # the structured data: a price in the search result answers the question
+    # before the visitor ever sees the cheaper offers on the page.
+    price_official = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True
     )
-    price_original = models.DecimalField(
-        max_digits=10, decimal_places=2, null=True, blank=True
-    )
+    price_checked_at = models.DateField(null=True, blank=True)
 
     is_published = models.BooleanField(default=False)
     # Feeds schema.org datePublished and the sitemap; set once on publish and
@@ -61,11 +64,20 @@ class Product(BaseModel):
     requires_account = models.BooleanField(default=False)
     is_child_certified = models.BooleanField(default=False)
 
+    # The one category this product belongs to first: it decided which
+    # pipeline analysed it, it is the breadcrumb and the canonical home for
+    # search engines, and it is what a listing filters on. Always also part
+    # of `categories`, which holds every further assignment for the hubs.
+    primary_category = models.ForeignKey(
+        Category, on_delete=models.PROTECT, related_name="primary_products"
+    )
     categories = models.ManyToManyField(Category, related_name="products", blank=True)
     badges = models.ManyToManyField(Badge, related_name="products", blank=True)
     learning_badges = models.ManyToManyField(
         LearningBadge, related_name="products", blank=True
     )
+    # Where it is used - independent of what it is (categories).
+    contexts = models.ManyToManyField(UsageContext, related_name="products", blank=True)
 
     # The analysis run this product came out of. Kept so every published
     # field can be traced back to the sources it was derived from.

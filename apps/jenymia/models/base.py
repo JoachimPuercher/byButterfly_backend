@@ -27,6 +27,10 @@ class SourceType(models.TextChoices):
     ARTICLE = "article", "article"
     TEST_INSTITUTE = "test_institute", "test institute"
     MANUFACTURER = "manufacturer", "manufacturer"
+    # Technical specifications from the manufacturer, often a PDF. Kept apart
+    # from MANUFACTURER because it is the source that carries comparable
+    # numbers, not marketing copy.
+    DATASHEET = "datasheet", "datasheet"
     FORUM = "forum", "forum"
 
 

@@ -23,6 +23,8 @@ from .lookups import (
     LearningBadge,
     LearningBadgeTranslation,
     Pipeline,
+    UsageContext,
+    UsageContextTranslation,
 )
 from .product import PRICE_CURRENCY, Product, ProductTranslation
 from .product_sources import ExtractStatus, ProductToAnalyse, WebUrl, YoutubeUrl
@@ -56,6 +58,8 @@ __all__ = [
     "ProductToAnalyse",
     "ProductTranslation",
     "SourceType",
+    "UsageContext",
+    "UsageContextTranslation",
     "WebUrl",
     "YoutubeUrl",
 ]

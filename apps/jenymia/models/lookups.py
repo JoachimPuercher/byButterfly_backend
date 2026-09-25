@@ -148,6 +148,38 @@ class LearningBadgeTranslation(TranslationBase):
         ]
 
 
+class UsageContext(BaseModel):
+    """Where a product is used: school, kindergarten, leisure, on the go, at
+    home. A second list next to the category tree, because "where" is a
+    different question from "what": a drinking bottle is one product type
+    used in four places. Filled by the analysis like badges, corrected in
+    the admin before publication."""
+
+    slug = models.SlugField(max_length=60, unique=True)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ("sort_order",)
+
+    def __str__(self) -> str:
+        return self.slug
+
+
+class UsageContextTranslation(TranslationBase):
+    usage_context = models.ForeignKey(
+        UsageContext, on_delete=models.CASCADE, related_name="translations"
+    )
+    name = models.CharField(max_length=100)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["usage_context", "locale"],
+                name="usage_context_one_translation_per_locale",
+            )
+        ]
+
+
 class Author(BaseModel):
     """The person who signs the published analysis - the E-E-A-T author for
     schema.org/Person. Not the operators of the analysed sources: those are

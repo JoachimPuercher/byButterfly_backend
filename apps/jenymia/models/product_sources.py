@@ -52,6 +52,10 @@ class ProductToAnalyse(BaseModel):
     # Without it there is no way to find out later which products were
     # written by a prompt that turned out to be wrong.
     prompt_version = models.CharField(max_length=60, blank=True)
+    # Which model answered. Together with prompt_version this makes a product
+    # traceable to what produced it, which is what a re-run needs to target.
+    llm_provider = models.CharField(max_length=20, blank=True)
+    llm_model = models.CharField(max_length=60, blank=True)
     last_analysed_at = models.DateTimeField(null=True, blank=True)
     creator = models.ForeignKey(
         settings.AUTH_USER_MODEL,
