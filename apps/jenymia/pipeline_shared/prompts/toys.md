@@ -1,4 +1,4 @@
-version: toys-2026-09-24
+version: toys-2026-09-25
 
 ## Produktgruppe: Spielen & Lernen
 
@@ -16,6 +16,6 @@ Zusaetzlich zu den Regeln oben gilt fuer diese Gruppe:
 
 ## Ampel in dieser Gruppe (vorlaeufig)
 
-- 3: Sicherheit belegt, langlebig, Foerderwert erkennbar, Preis fair.
+- 3: Sicherheit belegt, langlebig, Foerderwert erkennbar.
 - 2: brauchbar, aber mit klaren Einschraenkungen.
-- 1: Sicherheitsbedenken, kurze Lebensdauer oder deutlich ueberteuert.
+- 1: Sicherheitsbedenken oder kurze Lebensdauer.

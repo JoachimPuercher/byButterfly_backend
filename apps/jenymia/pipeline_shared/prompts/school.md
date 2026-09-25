@@ -1,4 +1,4 @@
-version: school-2026-09-24
+version: school-2026-09-25
 
 ## Produktgruppe: Schule & Alltag
 
@@ -12,6 +12,6 @@ Zusaetzlich zu den Regeln oben gilt fuer diese Gruppe:
 
 ## Ampel in dieser Gruppe (vorlaeufig)
 
-- 3: haltbar, leicht zu reinigen, Ersatzteile verfuegbar, Preis fair.
+- 3: haltbar, leicht zu reinigen, Ersatzteile verfuegbar.
 - 2: funktioniert, aber mit Einschraenkungen im Alltag.
 - 1: geht schnell kaputt, nicht reparierbar oder bedenkliche Materialien.
