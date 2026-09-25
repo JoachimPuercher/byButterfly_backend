@@ -26,6 +26,7 @@ from apps.jenymia.models import (
     ProductProsCon,
     ProductSource,
     ProductSpec,
+    UsageContext,
 )
 
 
@@ -83,11 +84,14 @@ class AuthorSerializer(serializers.ModelSerializer):
 
 
 class CategorySerializer(TranslatedMixin, serializers.ModelSerializer):
+    """parent lets the frontend build the breadcrumb chain from the
+    categories it already has, without another request."""
+
     translated_fields = ("slug", "name")
 
     class Meta:
         model = Category
-        fields = ("id",)
+        fields = ("id", "parent")
 
 
 class BadgeSerializer(TranslatedMixin, serializers.ModelSerializer):
@@ -95,6 +99,14 @@ class BadgeSerializer(TranslatedMixin, serializers.ModelSerializer):
 
     class Meta:
         model = Badge
+        fields = ("slug",)
+
+
+class UsageContextSerializer(TranslatedMixin, serializers.ModelSerializer):
+    translated_fields = ("name",)
+
+    class Meta:
+        model = UsageContext
         fields = ("slug",)
 
 
@@ -194,9 +206,11 @@ class ProductDetailSerializer(TranslatedMixin, serializers.ModelSerializer):
 
     brand = BrandSerializer()
     author = AuthorSerializer()
+    primary_category = CategorySerializer()
     categories = CategorySerializer(many=True)
     badges = BadgeSerializer(many=True)
     learning_badges = LearningBadgeSerializer(many=True)
+    contexts = UsageContextSerializer(many=True)
     images = ImageSerializer(many=True)
     primary_image = serializers.SerializerMethodField()
     sources = SourceSerializer(many=True)
@@ -229,9 +243,11 @@ class ProductDetailSerializer(TranslatedMixin, serializers.ModelSerializer):
             "is_child_certified",
             "brand",
             "author",
+            "primary_category",
             "categories",
             "badges",
             "learning_badges",
+            "contexts",
             "images",
             "primary_image",
             "sources",
@@ -254,10 +270,24 @@ class ProductDetailSerializer(TranslatedMixin, serializers.ModelSerializer):
         }
 
     def get_price(self, product: Product) -> dict:
+        """The manufacturer's list price and when it was checked.
+
+        Shown on the page next to the shop buttons as a reference. It must
+        NOT end up in the JSON-LD as offers.price: a price in the search
+        result answers the question before the visitor sees the cheaper shop
+        offers on the page. Once affiliate prices are fetched automatically,
+        an AggregateOffer with lowPrice takes its place.
+        """
         return {
-            "current": product.price_current,
-            "original": product.price_original,
+            # A string, not a number: DRF's JSON encoder turns a Decimal into
+            # a float, and 29.99 has no exact binary representation.
+            "official": (
+                str(product.price_official)
+                if product.price_official is not None
+                else None
+            ),
             "currency": PRICE_CURRENCY,
+            "checked_at": product.price_checked_at,
         }
 
     def get_primary_image(self, product: Product) -> dict | None:

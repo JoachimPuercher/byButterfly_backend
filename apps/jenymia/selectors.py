@@ -21,12 +21,14 @@ def published_product(locale: str, slug: str) -> Product:
     """
     return (
         Product.objects.filter(is_published=True)
-        .select_related("brand", "author")
+        .select_related("brand", "author", "primary_category")
         .prefetch_related(
             "translations",
+            "primary_category__translations",
             "categories__translations",
             "badges__translations",
             "learning_badges__translations",
+            "contexts__translations",
             "images__translations",
             "sources",
             "specs__translations",
