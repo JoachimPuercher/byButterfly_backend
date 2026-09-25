@@ -22,6 +22,13 @@ RUN useradd --create-home --uid 10001 app
 COPY --chown=app:app . .
 USER app
 
+# The worker downloads the whisper weights into this directory on first use.
+# It has to exist in the image and belong to app: a named volume mounted on a
+# path the image does not have is created as root, and app could not write
+# to it. With the directory present, Docker seeds the volume from it, owner
+# included.
+RUN mkdir -p /home/app/.cache/huggingface
+
 # Everything that needs the database or the settings happens at container
 # start, not at build time: settings require SECRET_KEY and POSTGRES_* at
 # import, which the build has no access to. WhiteNoise then serves the static

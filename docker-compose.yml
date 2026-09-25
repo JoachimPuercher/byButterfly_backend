@@ -63,8 +63,14 @@ services:
     environment:
       DJANGO_SETTINGS_MODULE: core.settings.dev
       DEPLOY_BACKGROUND_WORKERS: "True"
+      # Where huggingface_hub keeps downloaded models. Stated here so the
+      # mount below and the library's cache path are visibly the same thing.
+      HF_HOME: /home/app/.cache/huggingface
     volumes:
       - .:/app
+      # The whisper weights (~3 GB for large-v3), downloaded once and kept
+      # across container rebuilds and `docker compose down`.
+      - hf-cache:/home/app/.cache/huggingface
     depends_on:
       db:
         condition: service_healthy
@@ -74,3 +80,4 @@ services:
 
 volumes:
   pgdata:
+  hf-cache:
