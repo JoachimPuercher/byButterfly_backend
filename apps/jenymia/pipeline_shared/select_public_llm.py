@@ -1,20 +1,17 @@
-"""Ask Gemini, fall back to Claude when Gemini refuses.
+"""Ask the language model named in USE_LLM_MODEL for the analysis.
 
-Gemini runs on the free tier and answers with 403 or 429 once the quota is
-spent. Claude takes over then, and also when Gemini answers with nothing at
-all - a safety filter or a truncated stream says nothing about whether the
-question can be answered, and Claude usually answers it.
+One model per run, chosen by configuration - not a chain that falls back.
+Which model wrote a text decides how that text reads, so a page whose model
+depended on whose quota happened to be spent was a page whose quality could
+not be reproduced. The setting names one, and the order records which one
+answered.
 
-If both stay silent the run stops with a message naming both attempts, so
-the admin shows why nothing was written instead of only the last failure.
-
-Anything else propagates: a rejected request means the schema is wrong, and
-Claude would reject it for the same reason.
+Claude writes the published analyses. Gemini Flash is the cheap seat for test
+runs: switching USE_LLM_MODEL to gemini costs nothing per prompt, which makes
+it the one to iterate a prompt against before spending Claude tokens on it.
 
 The answer is returned as raw JSON text and validated by schema.parse()
-afterwards, so neither provider can smuggle a wrong shape into the database.
-Which provider and model produced it is returned alongside, because a
-product has to stay traceable to what wrote it.
+afterwards, so neither model can smuggle a wrong shape into the database.
 """
 
 import logging
@@ -23,80 +20,35 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-# Claude needs an explicit budget. A full product answer in both languages
-# stays well under this; more than that is a runaway answer.
-MAX_OUTPUT_TOKENS = 16000
+# Both languages, up to eight FAQ entries and twelve pros and cons add up.
+# The previous budget of 16000 truncated long answers, and a truncated answer
+# arrives as a validation error that says nothing about the real cause. Both
+# models get the same budget, so switching between them does not silently
+# change how much either is allowed to write.
+MAX_OUTPUT_TOKENS = 32000
 
-# Free tier spent, or a key without access to the model.
-GEMINI_OUT_OF_QUOTA = (403, 429)
-
-GEMINI = "gemini"
 CLAUDE = "claude"
-
-
-class ProviderError(RuntimeError):
-    """The second provider failed for a reason of its own. Carries what
-    happened to the first one, because only the escaping exception reaches
-    the order and the admin."""
+GEMINI = "gemini"
 
 
 class EmptyAnswerError(ValueError):
-    """A provider returned nothing usable. Its own kind, so that an empty
-    answer can hand over to the next provider while a genuine error still
-    stops the run."""
+    """The model returned nothing usable, or stopped before it was finished.
+    Its own kind, so an unusable answer stays distinguishable in the order's
+    error from a request the provider refused outright."""
 
 
 def ask(prompt: str, json_schema: dict) -> tuple[str, str, str]:
-    """Return (answer as JSON text, provider, model)."""
-    print("SELECT_PUBLIC_LLM.ASK - STARTED", settings.GEMINI_MODEL)
-    from google.genai import errors
+    """Return (answer as JSON text, provider, model).
 
-    try:
-        answer = _gemini(prompt, json_schema)
-        print("SELECT_PUBLIC_LLM.ASK - DONE", GEMINI)
-        return answer
-    except errors.ClientError as error:
-        if error.code not in GEMINI_OUT_OF_QUOTA:
-            raise
-        first = f"{settings.GEMINI_MODEL} refused with {error.code}"
-    except EmptyAnswerError as error:
-        first = str(error)
-
-    # The two branches phrase it differently; one of them ends in a period.
-    first = first.rstrip(".")
-    logger.warning("%s - asking Claude.", first)
-    try:
-        answer = _claude(prompt, json_schema)
-        print("SELECT_PUBLIC_LLM.ASK - DONE", CLAUDE)
-        return answer
-    except EmptyAnswerError as error:
-        # Both silent. The order has to say that both were asked, otherwise
-        # the admin shows only Claude and the operator never learns that
-        # Gemini failed first - which is the part worth investigating.
-        raise EmptyAnswerError(f"No provider answered. {first}. Then {error}") from None
-    except Exception as error:
-        # Not re-raising the provider's own class: its constructor takes
-        # arguments we do not have. The class name goes into the message,
-        # the original stays attached as the cause.
-        raise ProviderError(f"{first}. Then {type(error).__name__}: {error}") from error
-
-
-def _gemini(prompt: str, json_schema: dict) -> tuple[str, str, str]:
-    print("SELECT_PUBLIC_LLM._GEMINI - STARTED", settings.GEMINI_MODEL)
-    from google import genai
-
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
-    interaction = client.interactions.create(
-        model=settings.GEMINI_MODEL,
-        input=prompt,
-        response_format={
-            "type": "text",
-            "mime_type": "application/json",
-            "schema": json_schema,
-        },
+    settings validates USE_LLM_MODEL at startup, so the lookup below cannot
+    miss for a running process - a typo stops the process instead of the job.
+    """
+    print("SELECT_PUBLIC_LLM.ASK - STARTED", settings.USE_LLM_MODEL)
+    answer = {CLAUDE: _claude, GEMINI: _gemini}[settings.USE_LLM_MODEL](
+        prompt, json_schema
     )
-    print("SELECT_PUBLIC_LLM._GEMINI - DONE", settings.GEMINI_MODEL)
-    return _answer(interaction.output_text or "", GEMINI, settings.GEMINI_MODEL)
+    print("SELECT_PUBLIC_LLM.ASK - DONE", settings.USE_LLM_MODEL)
+    return answer
 
 
 def _claude(prompt: str, json_schema: dict) -> tuple[str, str, str]:
@@ -107,12 +59,50 @@ def _claude(prompt: str, json_schema: dict) -> tuple[str, str, str]:
     message = client.messages.create(
         model=settings.ANTHROPIC_MODEL,
         max_tokens=MAX_OUTPUT_TOKENS,
+        # temperature stays unset for both models. The API default is what
+        # produces prose that reads like a person wrote it; lowering it is
+        # what makes every analysis sound like the last one.
         messages=[{"role": "user", "content": prompt}],
         output_config={"format": {"type": "json_schema", "schema": json_schema}},
     )
     text = "".join(block.text for block in message.content if block.type == "text")
+
+    # A cut-off answer is not valid JSON, so it would surface in parse() as a
+    # complaint about a missing brace. Saying it here names the actual cause.
+    if message.stop_reason == "max_tokens":
+        raise EmptyAnswerError(
+            f"{settings.ANTHROPIC_MODEL} hit the output limit of "
+            f"{MAX_OUTPUT_TOKENS} tokens; the answer is incomplete."
+        )
     print("SELECT_PUBLIC_LLM._CLAUDE - DONE", settings.ANTHROPIC_MODEL)
     return _answer(text, CLAUDE, settings.ANTHROPIC_MODEL)
+
+
+def _gemini(prompt: str, json_schema: dict) -> tuple[str, str, str]:
+    print("SELECT_PUBLIC_LLM._GEMINI - STARTED", settings.GEMINI_MODEL)
+    from google import genai
+
+    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    interaction = client.interactions.create(
+        model=settings.GEMINI_MODEL,
+        input=prompt,
+        generation_config={"max_output_tokens": MAX_OUTPUT_TOKENS},
+        response_format={
+            "type": "text",
+            "mime_type": "application/json",
+            "schema": json_schema,
+        },
+    )
+
+    # "incomplete" is what Gemini reports where Claude says max_tokens, and
+    # any other non-completed status means the text in hand is partial too.
+    if interaction.status != "completed":
+        raise EmptyAnswerError(
+            f"{settings.GEMINI_MODEL} stopped with status "
+            f"{interaction.status!r}; the answer is incomplete."
+        )
+    print("SELECT_PUBLIC_LLM._GEMINI - DONE", settings.GEMINI_MODEL)
+    return _answer(interaction.output_text or "", GEMINI, settings.GEMINI_MODEL)
 
 
 def _answer(text: str, provider: str, model: str) -> tuple[str, str, str]:

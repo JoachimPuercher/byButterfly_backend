@@ -126,7 +126,9 @@ Only when `DEPLOY_BACKGROUND_WORKERS` is true:
 | `MAX_VIDEO_DURATION_SECONDS` | checked before the download, not after |
 | `INGEST_MAX_ATTEMPTS` | total runs including the first; must be at least 2 |
 | `WHISPER_MODEL` `WHISPER_DEVICE` `WHISPER_COMPUTE_TYPE` | |
-| `GEMINI_API_KEY` `GEMINI_MODEL` `ANTHROPIC_API_KEY` `ANTHROPIC_MODEL` | Gemini answers first, Claude takes over when its quota is spent |
+| `USE_LLM_MODEL` | `claude` or `gemini` - which one writes the analysis, no fallback between them |
+| `GEMINI_API_KEY` `GEMINI_MODEL` | the cheap seat for test runs |
+| `ANTHROPIC_API_KEY` `ANTHROPIC_MODEL` | writes the published analyses |
 
 Production only (`core.settings.prod`):
 
