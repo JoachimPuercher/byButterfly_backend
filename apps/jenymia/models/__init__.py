@@ -1,3 +1,61 @@
-from .product_sources import ProductToAnalyse, WebUrl, YoutubeUrl
+from .base import Locale, SourceType
+from .details import (
+    AffiliateLink,
+    DataCategory,
+    DataCategoryTranslation,
+    ProductFaq,
+    ProductFaqTranslation,
+    ProductImage,
+    ProductImageTranslation,
+    ProductProsCon,
+    ProductProsConTranslation,
+    ProductSource,
+    ProductSpec,
+    ProductSpecTranslation,
+)
+from .lookups import (
+    Author,
+    Badge,
+    BadgeTranslation,
+    Brand,
+    Category,
+    CategoryTranslation,
+    LearningBadge,
+    LearningBadgeTranslation,
+    Pipeline,
+)
+from .product import PRICE_CURRENCY, Product, ProductTranslation
+from .product_sources import ExtractStatus, ProductToAnalyse, WebUrl, YoutubeUrl
 
-__all__ = ["ProductToAnalyse", "WebUrl", "YoutubeUrl"]
+__all__ = [
+    "PRICE_CURRENCY",
+    "AffiliateLink",
+    "Author",
+    "Badge",
+    "BadgeTranslation",
+    "Brand",
+    "Category",
+    "CategoryTranslation",
+    "DataCategory",
+    "DataCategoryTranslation",
+    "ExtractStatus",
+    "LearningBadge",
+    "LearningBadgeTranslation",
+    "Locale",
+    "Pipeline",
+    "Product",
+    "ProductFaq",
+    "ProductFaqTranslation",
+    "ProductImage",
+    "ProductImageTranslation",
+    "ProductProsCon",
+    "ProductProsConTranslation",
+    "ProductSource",
+    "ProductSpec",
+    "ProductSpecTranslation",
+    "ProductToAnalyse",
+    "ProductTranslation",
+    "SourceType",
+    "WebUrl",
+    "YoutubeUrl",
+]
