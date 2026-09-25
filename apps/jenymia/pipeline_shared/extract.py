@@ -23,6 +23,7 @@ PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
 
 def run_extract(order_id: str) -> None:
+    print("EXTRACT.RUN_EXTRACT - STARTED", order_id)
     order = ProductToAnalyse.objects.select_related("sub_category").get(pk=order_id)
 
     # Everything that can fail is inside the try, including the prompt
@@ -44,6 +45,7 @@ def run_extract(order_id: str) -> None:
                 ProductToAnalyse.Status.FAILED,
                 error="No source text to analyse.",
             )
+            print("EXTRACT.RUN_EXTRACT - DONE", order_id)
             return
 
         prompt, prompt_version = build_prompt(prompt_name, pipeline, sources)
@@ -57,6 +59,7 @@ def run_extract(order_id: str) -> None:
             ProductToAnalyse.Status.FAILED,
             error=f"{type(error).__name__}: {error}",
         )
+        print("EXTRACT.RUN_EXTRACT - DONE", order_id)
         return
 
     services.set_order_status(
@@ -67,11 +70,13 @@ def run_extract(order_id: str) -> None:
         llm_model=model,
     )
     logger.info("Created product %s from order %s.", product.pk, order_id)
+    print("EXTRACT.RUN_EXTRACT - DONE", order_id)
 
 
 def _collect_sources(order: ProductToAnalyse) -> list[dict]:
     """Every source that produced text, with the metadata the model needs to
     weigh it: who said it, what kind of publication it is, and when."""
+    print("EXTRACT._COLLECT_SOURCES - STARTED", order.pk)
     sources = []
     for source in order.youtube_urls.filter(extract_status=ExtractStatus.EXTRACTED):
         sources.append(
@@ -95,6 +100,7 @@ def _collect_sources(order: ProductToAnalyse) -> list[dict]:
                 "text": source.raw_text,
             }
         )
+    print("EXTRACT._COLLECT_SOURCES - DONE", len(sources))
     return sources
 
 
@@ -108,6 +114,7 @@ def build_prompt(
     it is appended after them. Returns the prompt and the version string
     that gets stored with the result.
     """
+    print("EXTRACT.BUILD_PROMPT - STARTED", prompt_name)
     base, base_version = _read_prompt("_base.md")
     group, group_version = _read_prompt(f"{prompt_name}.md")
 
@@ -115,6 +122,7 @@ def build_prompt(
     rendered_sources = json.dumps(sources, indent=2, ensure_ascii=False)
     prompt = base.format(fields=fields, sources=rendered_sources) + "\n\n" + group
 
+    print("EXTRACT.BUILD_PROMPT - DONE", prompt_name)
     return prompt, f"{base_version}+{group_version}"
 
 
@@ -126,10 +134,12 @@ def _read_prompt(name: str) -> tuple[str, str]:
     _base.md goes through str.format, so it may contain no braces except the
     two placeholders {fields} and {sources}. The group files are appended
     unformatted and may use braces freely."""
+    print("EXTRACT._READ_PROMPT - STARTED", name)
     text = (PROMPTS_DIR / name).read_text(encoding="utf-8")
     first_line, _, body = text.partition("\n")
     if not first_line.startswith("version:"):
         raise ValueError(f"Prompt {name} has no version line.")
+    print("EXTRACT._READ_PROMPT - DONE", name)
     return body.strip(), first_line.split(":", 1)[1].strip()
 
 
@@ -142,6 +152,9 @@ def analyse(prompt: str, pipeline: str) -> tuple[str, str, str]:
     answer is generated and checked again afterwards. Which provider answers
     is decided in select_public_llm.
     """
+    print("EXTRACT.ANALYSE - STARTED", pipeline)
     from .select_public_llm import ask
 
-    return ask(prompt, schema.json_schema(pipeline))
+    answer, provider, model = ask(prompt, schema.json_schema(pipeline))
+    print("EXTRACT.ANALYSE - DONE", model)
+    return answer, provider, model

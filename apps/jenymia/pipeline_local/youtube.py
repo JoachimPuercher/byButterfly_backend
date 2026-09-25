@@ -74,6 +74,7 @@ _EXTRA_KEYS = (
 
 def fetch(url: str) -> YoutubeSource:
     """Read the metadata, then download the audio track."""
+    print("YOUTUBE.FETCH - STARTED", url)
     if urlparse(url).hostname not in ALLOWED_HOSTS:
         raise RejectedUrlError(f"Not a YouTube URL: {url}")
 
@@ -102,6 +103,7 @@ def fetch(url: str) -> YoutubeSource:
         # it picks another container than expected.
         audio_path = info["requested_downloads"][0]["filepath"]
 
+    print("YOUTUBE.FETCH - DONE", url)
     return YoutubeSource(
         audio_path=audio_path,
         video_id=info.get("id", ""),

@@ -48,10 +48,13 @@ class EmptyAnswerError(ValueError):
 
 def ask(prompt: str, json_schema: dict) -> tuple[str, str, str]:
     """Return (answer as JSON text, provider, model)."""
+    print("SELECT_PUBLIC_LLM.ASK - STARTED", settings.GEMINI_MODEL)
     from google.genai import errors
 
     try:
-        return _gemini(prompt, json_schema)
+        answer = _gemini(prompt, json_schema)
+        print("SELECT_PUBLIC_LLM.ASK - DONE", GEMINI)
+        return answer
     except errors.ClientError as error:
         if error.code not in GEMINI_OUT_OF_QUOTA:
             raise
@@ -63,7 +66,9 @@ def ask(prompt: str, json_schema: dict) -> tuple[str, str, str]:
     first = first.rstrip(".")
     logger.warning("%s - asking Claude.", first)
     try:
-        return _claude(prompt, json_schema)
+        answer = _claude(prompt, json_schema)
+        print("SELECT_PUBLIC_LLM.ASK - DONE", CLAUDE)
+        return answer
     except EmptyAnswerError as error:
         # Both silent. The order has to say that both were asked, otherwise
         # the admin shows only Claude and the operator never learns that
@@ -77,6 +82,7 @@ def ask(prompt: str, json_schema: dict) -> tuple[str, str, str]:
 
 
 def _gemini(prompt: str, json_schema: dict) -> tuple[str, str, str]:
+    print("SELECT_PUBLIC_LLM._GEMINI - STARTED", settings.GEMINI_MODEL)
     from google import genai
 
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
@@ -89,10 +95,12 @@ def _gemini(prompt: str, json_schema: dict) -> tuple[str, str, str]:
             "schema": json_schema,
         },
     )
+    print("SELECT_PUBLIC_LLM._GEMINI - DONE", settings.GEMINI_MODEL)
     return _answer(interaction.output_text or "", GEMINI, settings.GEMINI_MODEL)
 
 
 def _claude(prompt: str, json_schema: dict) -> tuple[str, str, str]:
+    print("SELECT_PUBLIC_LLM._CLAUDE - STARTED", settings.ANTHROPIC_MODEL)
     import anthropic
 
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
@@ -103,11 +111,14 @@ def _claude(prompt: str, json_schema: dict) -> tuple[str, str, str]:
         output_config={"format": {"type": "json_schema", "schema": json_schema}},
     )
     text = "".join(block.text for block in message.content if block.type == "text")
+    print("SELECT_PUBLIC_LLM._CLAUDE - DONE", settings.ANTHROPIC_MODEL)
     return _answer(text, CLAUDE, settings.ANTHROPIC_MODEL)
 
 
 def _answer(text: str, provider: str, model: str) -> tuple[str, str, str]:
+    print("SELECT_PUBLIC_LLM._ANSWER - STARTED", model)
     if not text.strip():
         raise EmptyAnswerError(f"{model} returned an empty answer.")
     logger.info("Answered by %s.", model)
+    print("SELECT_PUBLIC_LLM._ANSWER - DONE", model)
     return text, provider, model

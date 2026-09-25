@@ -58,6 +58,7 @@ def request_analysis(order: ProductToAnalyse) -> None:
     (Railway in phase 1) the order simply stays queued until a machine with
     a worker picks it up - nothing is lost, nothing runs in the web process.
     """
+    print("SERVICES.REQUEST_ANALYSIS - STARTED", order.pk)
     # attempts counts the runs of one queueing, not the lifetime of the order.
     # Without the reset a re-queued order starts at the old count and
     # run_ingest declares it exhausted on its first try.
@@ -67,6 +68,7 @@ def request_analysis(order: ProductToAnalyse) -> None:
     order.attempts = 0
     if not settings.DEPLOY_BACKGROUND_WORKERS:
         logger.info("No worker deployed, order %s stays queued.", order.pk)
+        print("SERVICES.REQUEST_ANALYSIS - DONE", order.pk)
         return
 
     from rq import Retry
@@ -81,30 +83,36 @@ def request_analysis(order: ProductToAnalyse) -> None:
         run_ingest,
         retry=Retry(max=retries, interval=RETRY_INTERVALS_SECONDS[:retries]),
     )
+    print("SERVICES.REQUEST_ANALYSIS - DONE", order.pk)
 
 
 def request_extract(order: ProductToAnalyse) -> None:
     """Queue the second job. Kept separate from the first so the analysis
     can be repeated without downloading and transcribing everything again -
     the raw text is already in the database."""
+    print("SERVICES.REQUEST_EXTRACT - STARTED", order.pk)
     if not settings.DEPLOY_BACKGROUND_WORKERS:
         logger.info("No worker deployed, order %s stays at text_extracted.", order.pk)
+        print("SERVICES.REQUEST_EXTRACT - DONE", order.pk)
         return
 
     from .pipeline_shared.extract import run_extract
 
     _enqueue(order, run_extract)
+    print("SERVICES.REQUEST_EXTRACT - DONE", order.pk)
 
 
 def _enqueue(order: ProductToAnalyse, job, **options: Any) -> None:
     """Enqueue after the surrounding transaction commits. The admin saves
     inside a transaction, and a worker on a healthy Redis would otherwise
     fetch the job before the row exists."""
+    print("SERVICES._ENQUEUE - STARTED", order.pk)
     import django_rq
 
     queue = django_rq.get_queue("default")
     transaction.on_commit(lambda: queue.enqueue(job, str(order.pk), **options))
     logger.info("Enqueued %s for order %s.", job.__name__, order.pk)
+    print("SERVICES._ENQUEUE - DONE", order.pk)
 
 
 def set_order_status(
@@ -116,6 +124,7 @@ def set_order_status(
     llm_provider: str = "",
     llm_model: str = "",
 ) -> None:
+    print("SERVICES.SET_ORDER_STATUS - STARTED", status)
     fields: dict[str, Any] = {"status": status, "error": error}
     if status == ProductToAnalyse.Status.RUNNING:
         fields["attempts"] = order.attempts + 1
@@ -128,6 +137,7 @@ def set_order_status(
         fields["llm_model"] = llm_model[:60]
         fields["last_analysed_at"] = timezone.now()
     ProductToAnalyse.objects.filter(pk=order.pk).update(**fields)
+    print("SERVICES.SET_ORDER_STATUS - DONE", status)
 
 
 def _without_nul(value: Any) -> Any:
@@ -153,18 +163,22 @@ def save_source_text(source, raw_text: str, **metadata: Any) -> None:
     Called for YoutubeUrl and WebUrl alike - both carry the same columns for
     the result, only their metadata columns differ.
     """
+    print("SERVICES.SAVE_SOURCE_TEXT - STARTED", source.url)
     for field, value in metadata.items():
         setattr(source, field, _without_nul(value))
     source.raw_text = _without_nul(raw_text)
     source.extract_status = ExtractStatus.EXTRACTED
     source.error = ""
     source.save()
+    print("SERVICES.SAVE_SOURCE_TEXT - DONE", source.url)
 
 
 def save_source_error(source, error: str) -> None:
+    print("SERVICES.SAVE_SOURCE_ERROR - STARTED", source.url)
     source.extract_status = ExtractStatus.FAILED
     source.error = error
     source.save(update_fields=["extract_status", "error", "updated_at"])
+    print("SERVICES.SAVE_SOURCE_ERROR - DONE", source.url)
 
 
 # --- product --------------------------------------------------------------
@@ -186,6 +200,7 @@ def create_product_from_analysis(
     has been edited by hand in the admin. AI text that goes online unedited
     is bad for SEO and worse for trust.
     """
+    print("SERVICES.CREATE_PRODUCT_FROM_ANALYSIS - STARTED", order.pk)
     _replace_previous_product(order)
 
     brand_name = (data.get("brand") or "").strip()
@@ -298,6 +313,7 @@ def create_product_from_analysis(
         data.get("data_categories", []),
     )
 
+    print("SERVICES.CREATE_PRODUCT_FROM_ANALYSIS - DONE", product.pk)
     return product
 
 
@@ -353,20 +369,24 @@ def unpublish_product(product: Product) -> None:
 def _replace_previous_product(order: ProductToAnalyse) -> None:
     """A re-run after a prompt fix replaces the draft it produced before.
     A product that is already public is never touched by the pipeline."""
+    print("SERVICES._REPLACE_PREVIOUS_PRODUCT - STARTED", order.pk)
     previous = Product.objects.filter(analysis=order).first()
     if previous is None:
+        print("SERVICES._REPLACE_PREVIOUS_PRODUCT - DONE", order.pk)
         return
     if previous.is_published:
         raise ValueError(
             f"Order {order.pk} already has a published product; unpublish it first."
         )
     previous.delete()
+    print("SERVICES._REPLACE_PREVIOUS_PRODUCT - DONE", order.pk)
 
 
 def _create_sources(product: Product, order: ProductToAnalyse) -> None:
     """The public citation list comes from the order's own URLs, with the
     metadata the fetchers stored - never from the analysis text, which could
     invent a source."""
+    print("SERVICES._CREATE_SOURCES - STARTED", product.pk)
     extracted = order.youtube_urls.filter(extract_status=ExtractStatus.EXTRACTED)
     rows = [
         (src.title, src.webpage_url or src.url, SourceType.YOUTUBE, src.source_date)
@@ -391,6 +411,7 @@ def _create_sources(product: Product, order: ProductToAnalyse) -> None:
             published_at=published_at,
             sort_order=sort_order,
         )
+    print("SERVICES._CREATE_SOURCES - DONE", product.pk)
 
 
 def _resolve_subcategories(entries: list[dict]) -> list[SubCategory]:
@@ -400,6 +421,7 @@ def _resolve_subcategories(entries: list[dict]) -> list[SubCategory]:
     Flat: a sub-category belongs to no main category, which is what lets the
     same one sit on products of different groups.
     """
+    print("SERVICES._RESOLVE_SUBCATEGORIES - STARTED", len(entries))
     categories = []
     for entry in entries:
         translations = entry.get("translations", {})
@@ -437,6 +459,7 @@ def _resolve_subcategories(entries: list[dict]) -> list[SubCategory]:
                 **_clean(SubCategoryTranslation, fields),
             )
         categories.append(category)
+    print("SERVICES._RESOLVE_SUBCATEGORIES - DONE", len(categories))
     return categories
 
 
@@ -451,6 +474,7 @@ def _resolve_lookup(
     is filled in, though: a row seeded with a German name only would
     otherwise answer with null for /en/ forever.
     """
+    print("SERVICES._RESOLVE_LOOKUP - STARTED", model.__name__)
     rows = []
     for entry in entries:
         if not entry.get("slug"):
@@ -466,6 +490,7 @@ def _resolve_lookup(
                 defaults=_clean(translation_model, fields),
             )
         rows.append(row)
+    print("SERVICES._RESOLVE_LOOKUP - DONE", model.__name__)
     return rows
 
 
@@ -475,6 +500,7 @@ def _create_with_translations(
     """All detail tables have the same shape: a row on the product plus one
     translation row per locale. One function instead of four identical loops.
     """
+    print("SERVICES._CREATE_WITH_TRANSLATIONS - STARTED", model.__name__)
     for entry in entries:
         # "translations" is handled here, so _clean must not report it as an
         # unknown column.
@@ -485,6 +511,7 @@ def _create_with_translations(
             translation_model.objects.create(
                 locale=locale, **{fk_name: row}, **_clean(translation_model, fields)
             )
+    print("SERVICES._CREATE_WITH_TRANSLATIONS - DONE", model.__name__)
 
 
 def _clean(model, values: dict[str, Any], *handled_elsewhere: str) -> dict[str, Any]:

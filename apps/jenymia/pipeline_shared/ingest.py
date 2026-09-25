@@ -50,6 +50,7 @@ def run_ingest(order_id: str) -> None:
     instead of staying on `running`, which in the admin looks like a run that
     is still going.
     """
+    print("INGEST.RUN_INGEST - STARTED", order_id)
     try:
         _ingest_all_sources(order_id)
     except IngestError:
@@ -64,18 +65,30 @@ def run_ingest(order_id: str) -> None:
             ProductToAnalyse.Status.FAILED,
             error=f"{type(error).__name__}: {error}",
         )
+    print("INGEST.RUN_INGEST - DONE", order_id)
 
 
 def _ingest_all_sources(order_id: str) -> None:
+    print("INGEST._INGEST_ALL_SOURCES - STARTED", order_id)
     order = ProductToAnalyse.objects.get(pk=order_id)
     services.set_order_status(order, ProductToAnalyse.Status.RUNNING)
     attempt = order.attempts + 1
 
     transient: list[str] = []
     permanent: list[str] = []
-    for source in order.youtube_urls.all():
+    # Read as lists so the log can name the position of each source in the
+    # whole run, not only that some source is being fetched.
+    youtube_sources = list(order.youtube_urls.all())
+    web_sources = list(order.web_urls.all())
+    total = len(youtube_sources) + len(web_sources)
+    position = 0
+    for source in youtube_sources:
+        position += 1
+        print(f"INGEST._INGEST_ALL_SOURCES - SOURCE {position}/{total}", source.url)
         _ingest_one(source, _ingest_youtube, transient, permanent)
-    for source in order.web_urls.all():
+    for source in web_sources:
+        position += 1
+        print(f"INGEST._INGEST_ALL_SOURCES - SOURCE {position}/{total}", source.url)
         _ingest_one(source, _ingest_web, transient, permanent)
 
     if permanent or (transient and attempt >= settings.INGEST_MAX_ATTEMPTS):
@@ -86,17 +99,21 @@ def _ingest_all_sources(order_id: str) -> None:
             ProductToAnalyse.Status.FAILED,
             error=f"Failed on attempt {attempt}: {summary}",
         )
+        print("INGEST._INGEST_ALL_SOURCES - DONE", order_id)
         return
     if transient:
         raise IngestError(" | ".join(transient))
 
     services.set_order_status(order, ProductToAnalyse.Status.TEXT_EXTRACTED)
     services.request_extract(order)
+    print("INGEST._INGEST_ALL_SOURCES - DONE", order_id)
 
 
 def _ingest_one(source, handler, transient: list[str], permanent: list[str]) -> None:
+    print("INGEST._INGEST_ONE - STARTED", source.url)
     if source.extract_status == ExtractStatus.EXTRACTED and source.raw_text:
         logger.info("Skipping %s, already extracted.", source.url)
+        print("INGEST._INGEST_ONE - DONE", source.url)
         return
     try:
         handler(source)
@@ -108,9 +125,11 @@ def _ingest_one(source, handler, transient: list[str], permanent: list[str]) -> 
         logger.exception("Extraction failed for %s", source.url)
         services.save_source_error(source, f"{type(error).__name__}: {error}")
         transient.append(f"{source.url}: {error}")
+    print("INGEST._INGEST_ONE - DONE", source.url)
 
 
 def _ingest_youtube(source) -> None:
+    print("INGEST._INGEST_YOUTUBE - STARTED", source.url)
     text, language, fields = youtube_text(source.url)
     if not text.strip():
         raise EmptySourceError("Transcription returned no text.")
@@ -122,9 +141,11 @@ def _ingest_youtube(source) -> None:
         source_date=source.source_date or fields.get("upload_date"),
         **fields,
     )
+    print("INGEST._INGEST_YOUTUBE - DONE", source.url)
 
 
 def _ingest_web(source) -> None:
+    print("INGEST._INGEST_WEB - STARTED", source.url)
     result = web.fetch(source.url)
     if not result.raw_text.strip():
         raise EmptySourceError("No article text found on the page.")
@@ -137,3 +158,4 @@ def _ingest_web(source) -> None:
         or (result.published_at.date() if result.published_at else None),
         **fields,
     )
+    print("INGEST._INGEST_WEB - DONE", source.url)

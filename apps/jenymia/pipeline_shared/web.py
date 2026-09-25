@@ -77,11 +77,16 @@ class WebSource:
 
 
 def fetch(url: str) -> WebSource:
+    print("WEB.FETCH - STARTED", url)
     body, encoding, final_url, status, content_type = _get(url)
     if content_type.startswith(PDF_CONTENT_TYPE):
-        return _from_pdf(body, final_url, status, content_type)
+        source = _from_pdf(body, final_url, status, content_type)
+        print("WEB.FETCH - DONE", url)
+        return source
     html = body.decode(encoding or "utf-8", errors="replace")
-    return _from_html(html, final_url, status, content_type)
+    source = _from_html(html, final_url, status, content_type)
+    print("WEB.FETCH - DONE", url)
+    return source
 
 
 def _from_pdf(body: bytes, final_url: str, status: int, content_type: str) -> WebSource:
@@ -91,6 +96,7 @@ def _from_pdf(body: bytes, final_url: str, status: int, content_type: str) -> We
     OpenGraph, headings - has no equivalent here and stays empty. The site
     name falls back to the host, which is what a citation needs.
     """
+    print("WEB._FROM_PDF - STARTED", final_url)
     try:
         reader = PdfReader(io.BytesIO(body))
         pages = len(reader.pages)
@@ -111,6 +117,7 @@ def _from_pdf(body: bytes, final_url: str, status: int, content_type: str) -> We
     author = _pdf_str(info, "author")
     filename = urlparse(final_url).path.rsplit("/", 1)[-1]
 
+    print("WEB._FROM_PDF - DONE", final_url)
     return WebSource(
         raw_text=text.strip(),
         final_url=final_url[:1000],
@@ -156,6 +163,7 @@ def _pdf_date(info, name: str) -> datetime | None:
 
 
 def _from_html(html: str, final_url: str, status: int, content_type: str) -> WebSource:
+    print("WEB._FROM_HTML - STARTED", final_url)
     soup = BeautifulSoup(html, "lxml")
     canonical = _link(soup, "canonical")
     structured = extruct.extract(
@@ -169,6 +177,7 @@ def _from_html(html: str, final_url: str, status: int, content_type: str) -> Web
     for entry in structured.get("opengraph", []):
         opengraph.update(entry)
 
+    print("WEB._FROM_HTML - DONE", final_url)
     return WebSource(
         raw_text=trafilatura.extract(html) or "",
         final_url=final_url[:1000],
@@ -201,6 +210,7 @@ def _get(url: str) -> tuple[bytes, str, str, int, str]:
     Returns (body, encoding, final url, status, content type). The body stays
     bytes because a PDF is not text; the caller decodes what it knows how to
     read."""
+    print("WEB._GET - STARTED", url)
     headers = {"User-Agent": USER_AGENT}
     with httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS, headers=headers) as client:
         for _ in range(MAX_REDIRECTS + 1):
@@ -227,6 +237,7 @@ def _get(url: str) -> tuple[bytes, str, str, int, str]:
                             f"Page larger than {MAX_RESPONSE_BYTES} bytes"
                         )
                     chunks.append(chunk)
+                print("WEB._GET - DONE", url)
                 return (
                     b"".join(chunks),
                     response.encoding or "",
@@ -239,6 +250,7 @@ def _get(url: str) -> tuple[bytes, str, str, int, str]:
 
 def _check_target(url: str) -> None:
     """Refuse anything that is not a public http(s) address."""
+    print("WEB._CHECK_TARGET - STARTED", url)
     parsed = urlparse(url)
     if parsed.scheme not in ALLOWED_SCHEMES or not parsed.hostname:
         raise RejectedUrlError(f"Refusing URL {url!r}: only public http(s) is fetched")
@@ -252,6 +264,7 @@ def _check_target(url: str) -> None:
             raise RejectedUrlError(
                 f"Refusing {parsed.hostname}: resolves to non-public address {ip}"
             )
+    print("WEB._CHECK_TARGET - DONE", url)
 
 
 def _title(soup: BeautifulSoup) -> str:

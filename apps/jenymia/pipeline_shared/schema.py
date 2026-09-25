@@ -560,7 +560,10 @@ ANALYSIS_MODELS: dict[str, type[BaseAnalysis]] = {
 def json_schema(pipeline: str) -> dict[str, Any]:
     """The shape of the answer, for the prompt and for the provider's
     structured output mode."""
-    return ANALYSIS_MODELS[pipeline].model_json_schema()
+    print("SCHEMA.JSON_SCHEMA - STARTED", pipeline)
+    result = ANALYSIS_MODELS[pipeline].model_json_schema()
+    print("SCHEMA.JSON_SCHEMA - DONE", pipeline)
+    return result
 
 
 def parse(payload: str | dict[str, Any], pipeline: str) -> dict[str, Any]:
@@ -573,10 +576,12 @@ def parse(payload: str | dict[str, Any], pipeline: str) -> dict[str, Any]:
     Returns a dict and not the model: services is the write interface for the
     whole app and must not depend on pipeline types.
     """
+    print("SCHEMA.PARSE - STARTED", pipeline)
     model = ANALYSIS_MODELS[pipeline]
     result = (
         model.model_validate_json(payload)
         if isinstance(payload, str)
         else model.model_validate(payload)
     )
+    print("SCHEMA.PARSE - DONE", pipeline)
     return result.model_dump()

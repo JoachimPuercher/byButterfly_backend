@@ -18,6 +18,7 @@ def youtube_text(url: str) -> tuple[str, str, dict]:
 
     The audio file is deleted whether or not the transcription worked - it
     is only an intermediate step and would otherwise pile up."""
+    print("PIPELINE_LOCAL.YOUTUBE_TEXT - STARTED", url)
     result = youtube.fetch(url)
     try:
         text, language = transcribe.transcribe(result.audio_path)
@@ -25,4 +26,5 @@ def youtube_text(url: str) -> tuple[str, str, dict]:
         Path(result.audio_path).unlink(missing_ok=True)
     fields = asdict(result)
     fields.pop("audio_path")
+    print("PIPELINE_LOCAL.YOUTUBE_TEXT - DONE", url)
     return text, language, fields
