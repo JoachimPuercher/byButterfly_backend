@@ -28,6 +28,8 @@ from .models import (
     ProductSpecTranslation,
     ProductToAnalyse,
     ProductTranslation,
+    UsageContext,
+    UsageContextTranslation,
     WebUrl,
     YoutubeUrl,
 )
@@ -84,6 +86,8 @@ class ProductToAnalyseAdmin(admin.ModelAdmin):
         "error",
         "attempts",
         "prompt_version",
+        "llm_provider",
+        "llm_model",
         "creator",
         "last_analysed_at",
         "created_at",
@@ -101,6 +105,8 @@ class ProductToAnalyseAdmin(admin.ModelAdmin):
                     "error",
                     "attempts",
                     "prompt_version",
+                    "llm_provider",
+                    "llm_model",
                     "analysed_by",
                     "last_analysed_at",
                 )
@@ -284,6 +290,14 @@ class ProductAdminForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
+
+        # The primary category is by definition one of the product's
+        # categories; ticking it twice would be busywork.
+        primary = cleaned.get("primary_category")
+        categories = cleaned.get("categories")
+        if primary and categories is not None and primary not in categories:
+            cleaned["categories"] = [*categories, primary]
+
         if not cleaned.get("is_published"):
             return cleaned
 
@@ -301,16 +315,33 @@ class ProductAdminForm(forms.ModelForm):
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     form = ProductAdminForm
-    list_display = ("__str__", "brand", "ampel_score", "is_published", "published_at")
-    list_filter = ("is_published", "ampel_score", "categories")
+    list_display = (
+        "__str__",
+        "brand",
+        "primary_category",
+        "ampel_score",
+        "is_published",
+        "published_at",
+    )
+    list_filter = ("is_published", "ampel_score", "primary_category", "categories")
     search_fields = ("translations__title", "brand__name", "model_name", "gtin")
     # Only the three the database fills itself; everything else on the model
     # is editable here.
     readonly_fields = ("id", "created_at", "updated_at")
-    filter_horizontal = ("categories", "badges", "learning_badges")
+    filter_horizontal = ("categories", "badges", "learning_badges", "contexts")
     fieldsets = (
         (None, {"fields": ("brand", "model_name", "gtin", "author", "ampel_score")}),
-        ("Price", {"fields": ("price_current", "price_original")}),
+        (
+            "Price",
+            {
+                "fields": ("price_official", "price_checked_at"),
+                "description": (
+                    "The manufacturer's list price, shown on the page as a "
+                    "reference next to the shop buttons. Shop prices are not "
+                    "maintained here."
+                ),
+            },
+        ),
         (
             "Suitability",
             {
@@ -325,7 +356,22 @@ class ProductAdmin(admin.ModelAdmin):
                 )
             },
         ),
-        ("Classification", {"fields": ("categories", "badges", "learning_badges")}),
+        (
+            "Classification",
+            {
+                "fields": (
+                    "primary_category",
+                    "categories",
+                    "contexts",
+                    "badges",
+                    "learning_badges",
+                ),
+                "description": (
+                    "The primary category is the breadcrumb and the canonical "
+                    "home; categories lists every hub the product appears on."
+                ),
+            },
+        ),
         (
             "Publication",
             {
@@ -354,7 +400,7 @@ class ProductAdmin(admin.ModelAdmin):
         return (
             super()
             .get_queryset(request)
-            .select_related("brand", "author")
+            .select_related("brand", "author", "primary_category")
             .prefetch_related("translations")
         )
 
@@ -499,3 +545,21 @@ class LearningBadgeAdmin(admin.ModelAdmin):
     ordering = ("sort_order", "slug")
     fields = ("slug", "sort_order")
     inlines = (LearningBadgeTranslationInline,)
+
+
+class UsageContextTranslationInline(admin.TabularInline):
+    model = UsageContextTranslation
+    extra = 2
+    fields = ("locale", "name")
+
+
+@admin.register(UsageContext)
+class UsageContextAdmin(admin.ModelAdmin):
+    """Where products are used: schule, kindergarten, freizeit, unterwegs,
+    zuhause. The analysis picks from and adds to this list; it is corrected
+    here before a product goes public."""
+
+    list_display = ("slug", "sort_order")
+    ordering = ("sort_order", "slug")
+    fields = ("slug", "sort_order")
+    inlines = (UsageContextTranslationInline,)
