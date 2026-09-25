@@ -37,6 +37,8 @@ from .models import (
     ProductToAnalyse,
     ProductTranslation,
     SourceType,
+    UsageContext,
+    UsageContextTranslation,
 )
 from .selectors import product_slug_taken
 
@@ -113,14 +115,38 @@ def set_order_status(
     *,
     error: str = "",
     prompt_version: str = "",
+    llm_provider: str = "",
+    llm_model: str = "",
 ) -> None:
     fields: dict[str, Any] = {"status": status, "error": error}
     if status == ProductToAnalyse.Status.RUNNING:
         fields["attempts"] = order.attempts + 1
     if status == ProductToAnalyse.Status.ANALYSE_COMPLETE:
-        fields["prompt_version"] = prompt_version
+        fields["prompt_version"] = prompt_version[:60]
+        # Truncated, not risked: this UPDATE runs after the product has been
+        # committed, so a DataError here would leave the order on "running"
+        # with a finished product next to it.
+        fields["llm_provider"] = llm_provider[:20]
+        fields["llm_model"] = llm_model[:60]
         fields["last_analysed_at"] = timezone.now()
     ProductToAnalyse.objects.filter(pk=order.pk).update(**fields)
+
+
+def _without_nul(value: Any) -> Any:
+    """PostgreSQL refuses a NUL byte in text and in jsonb alike, and scraped
+    pages, PDF fonts and video descriptions all produce them.
+
+    Stripped here, at the one place every source writes through, rather than
+    per field: a miss would surface as a DataError during the insert, which
+    ingest cannot tell from a network failure and would retry five times.
+    """
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, list):
+        return [_without_nul(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _without_nul(item) for key, item in value.items()}
+    return value
 
 
 def save_source_text(source, raw_text: str, **metadata: Any) -> None:
@@ -130,8 +156,8 @@ def save_source_text(source, raw_text: str, **metadata: Any) -> None:
     the result, only their metadata columns differ.
     """
     for field, value in metadata.items():
-        setattr(source, field, value)
-    source.raw_text = raw_text
+        setattr(source, field, _without_nul(value))
+    source.raw_text = _without_nul(raw_text)
     source.extract_status = ExtractStatus.EXTRACTED
     source.error = ""
     source.save()
@@ -167,13 +193,23 @@ def create_product_from_analysis(
     brand_name = (data.get("brand") or "").strip()
     if not brand_name:
         raise ValueError("Analysis result has no brand.")
+    brand_slug = slugify(brand_name)[: Brand._meta.get_field("slug").max_length].strip(
+        "-_"
+    )
+    if not brand_slug:
+        # Non-Latin scripts reduce to nothing. An empty slug is unique, so
+        # the first such brand would be created and the second would collide.
+        raise ValueError(f"Cannot build a slug from the brand {brand_name!r}.")
     brand, _ = Brand.objects.get_or_create(
-        slug=slugify(brand_name), defaults={"name": brand_name}
+        slug=brand_slug, defaults={"name": brand_name}
     )
 
     product = Product.objects.create(
         brand=brand,
         analysis=order,
+        # What was chosen on the order is what analysed it; the admin may move
+        # it down to a sub-category afterwards.
+        primary_category=order.category,
         is_published=False,
         **_clean(
             Product,
@@ -181,8 +217,16 @@ def create_product_from_analysis(
                 "model_name": data.get("model_name", ""),
                 "gtin": data.get("gtin", ""),
                 "ampel_score": data.get("ampel_score"),
-                "price_current": data.get("price_current"),
-                "price_original": data.get("price_original"),
+                "price_official": data.get("price_official"),
+                # Set here and not by the model: a language model does not
+                # reliably know today's date.
+                # "is not None", not truthiness: a free product has the
+                # price 0.00, which is falsy, and its price was checked too.
+                "price_checked_at": (
+                    timezone.now().date()
+                    if data.get("price_official") is not None
+                    else None
+                ),
                 "age_min_months": data.get("age_min_months"),
                 "age_max_months": data.get("age_max_months"),
                 "usage_lifespan_months": data.get("usage_lifespan_months"),
@@ -194,8 +238,9 @@ def create_product_from_analysis(
         ),
     )
 
-    # The main category was chosen by hand on the order and decided which
-    # prompt ran. Sub-categories and badges come out of the analysis and are
+    # The primary category was chosen by hand on the order and decided which
+    # prompt ran; it is always part of the assignments below. Sub-categories,
+    # badges, learning badges and contexts come out of the analysis and are
     # created here if they are new - everything the analysis proposes is
     # reviewed in the admin before the product goes public.
     product.categories.set(
@@ -215,12 +260,27 @@ def create_product_from_analysis(
             data.get("learning_badges", []),
         )
     )
+    product.contexts.set(
+        _resolve_lookup(
+            UsageContext,
+            UsageContextTranslation,
+            "usage_context",
+            data.get("contexts", []),
+        )
+    )
 
     for locale, fields in data["translations"].items():
         # Brand + title + model identifies a product on the market, so it
         # also identifies the page. The title carries neither of the other
         # two (see schema.py), otherwise the slug would repeat them.
-        slug = slugify(f"{brand.name} {fields['title']} {product.model_name}")
+        slug = slugify(f"{brand.name} {fields['title']} {product.model_name}")[
+            : ProductTranslation._meta.get_field("slug").max_length
+        ].strip("-_")
+        if not slug:
+            raise ValueError(
+                f"Cannot build a slug for locale {locale!r} from brand "
+                f"{brand.name!r} and title {fields['title']!r}."
+            )
         if product_slug_taken(locale, slug):
             # Two products with the same brand, title and model do not exist
             # on the market, so this is a duplicate order or a wrong title.
@@ -359,16 +419,37 @@ def _resolve_subcategories(main: Category, entries: list[dict]) -> list[Category
     categories = []
     for entry in entries:
         translations = entry.get("translations", {})
+        # slugify can reduce a proposal to nothing (punctuation only, a script
+        # it cannot transliterate). Every language needs one: an empty slug
+        # would both create an unreachable /en// page and, worse, match the
+        # next empty one and file an unrelated product under this category.
+        slugs = {
+            locale: fields.get("slug", "") for locale, fields in translations.items()
+        }
+        if not slugs or not all(slugs.values()):
+            logger.warning(
+                "Dropping sub-category proposal without a slug in every language."
+            )
+            continue
         existing = next(
             (
                 t.category
-                for locale, fields in translations.items()
+                for locale, slug in slugs.items()
                 for t in CategoryTranslation.objects.filter(
-                    locale=locale, slug=fields.get("slug", "")
+                    locale=locale, slug=slug
                 ).select_related("category")
             ),
             None,
         )
+        if existing and existing.parent_id is None:
+            # A main category is not a sub-category: attaching the product
+            # there would file it under a foreign hub, and creating a second
+            # category with that slug would break the locale/slug constraint.
+            logger.warning(
+                "Dropping sub-category proposal %r: that slug is a main category.",
+                slugs,
+            )
+            continue
         if existing:
             categories.append(existing)
             continue
@@ -385,22 +466,28 @@ def _resolve_subcategories(main: Category, entries: list[dict]) -> list[Category
 def _resolve_lookup(
     model, translation_model, fk_name: str, entries: list[dict]
 ) -> list:
-    """Create the badges or learning badges the analysis proposes, keep the
-    ones that exist.
+    """Create the badges, learning badges or contexts the analysis proposes,
+    keep the ones that exist.
 
-    Translations of an existing row are left untouched: a name corrected by
-    hand in the admin must not be overwritten by the next analysis.
+    A name that exists is never overwritten - a correction made by hand in
+    the admin has to survive the next analysis. A language that is *missing*
+    is filled in, though: a row seeded with a German name only would
+    otherwise answer with null for /en/ forever.
     """
     rows = []
     for entry in entries:
         if not entry.get("slug"):
+            logger.warning(
+                "Dropping %s proposal without a usable slug.", model.__name__
+            )
             continue
-        row, created = model.objects.get_or_create(slug=entry["slug"])
-        if created:
-            for locale, fields in entry.get("translations", {}).items():
-                translation_model.objects.create(
-                    locale=locale, **{fk_name: row}, **_clean(translation_model, fields)
-                )
+        row, _ = model.objects.get_or_create(slug=entry["slug"])
+        for locale, fields in entry.get("translations", {}).items():
+            translation_model.objects.get_or_create(
+                locale=locale,
+                **{fk_name: row},
+                defaults=_clean(translation_model, fields),
+            )
         rows.append(row)
     return rows
 
@@ -412,30 +499,35 @@ def _create_with_translations(
     translation row per locale. One function instead of four identical loops.
     """
     for entry in entries:
-        row = model.objects.create(product=product, **_clean(model, entry))
+        # "translations" is handled here, so _clean must not report it as an
+        # unknown column.
+        row = model.objects.create(
+            product=product, **_clean(model, entry, "translations")
+        )
         for locale, fields in entry.get("translations", {}).items():
             translation_model.objects.create(
                 locale=locale, **{fk_name: row}, **_clean(translation_model, fields)
             )
 
 
-def _clean(model, values: dict[str, Any], *set_by_us: str) -> dict[str, Any]:
+def _clean(model, values: dict[str, Any], *handled_elsewhere: str) -> dict[str, Any]:
     """Keep only what the model can store.
 
-    Drops keys that are not plain columns (unknown names, relations, the
-    BaseModel fields, `locale`, and whatever the caller sets itself) and cuts
-    strings to the column length. The analysis output is text from a
-    language model: an extra key or 80 characters too many must not abort
-    the whole product.
+    Drops keys that are not plain columns and cuts strings to the column
+    length. The analysis output is text from a language model: an extra key
+    or 80 characters too many must not abort the whole product.
+
+    `handled_elsewhere` names keys this function must neither write nor
+    complain about, because the caller deals with them itself - the slug it
+    builds, the nested `translations` it writes into their own table. Without
+    that distinction every detail row would log a false "unknown field".
     """
-    protected = {"id", "created_at", "updated_at", "locale", *set_by_us}
-    columns = {
-        f.name: f
-        for f in model._meta.concrete_fields
-        if not f.is_relation and f.name not in protected
-    }
+    written_here = {"id", "created_at", "updated_at", "locale", *handled_elsewhere}
+    columns = {f.name: f for f in model._meta.concrete_fields if not f.is_relation}
     cleaned: dict[str, Any] = {}
     for key, value in values.items():
+        if key in written_here:
+            continue
         column = columns.get(key)
         if column is None:
             logger.warning(

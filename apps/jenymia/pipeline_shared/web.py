@@ -1,10 +1,15 @@
-"""Web pages: fetch once, take three views of the same HTML.
+"""Web sources: HTML pages and PDF datasheets.
 
 1. httpx fetches the raw HTML and reports status, final URL after redirects
    and the time of the fetch - needed for error analysis and re-crawls.
 2. trafilatura pulls out the article text without navigation and footers.
 3. BeautifulSoup reads head data and the heading outline, extruct reads the
    structured data the page publishes about itself (JSON-LD, OpenGraph).
+
+A PDF has none of that - no head, no canonical, no structured data - so a
+datasheet yields its text and little else. Manufacturers publish technical
+specifications either way, and those numbers are what makes products
+comparable.
 
 The result is a dataclass whose field names are the WebUrl columns. This
 module knows no models, and the models know no parser.
@@ -18,6 +23,7 @@ covered yet, and must be before URLs come from users (backlog 5.6): DNS
 rebinding between the check and the connect, and an egress allowlist.
 """
 
+import io
 import ipaddress
 import logging
 import socket
@@ -31,6 +37,7 @@ import httpx
 import trafilatura
 from bs4 import BeautifulSoup
 from django.utils import timezone
+from pypdf import PdfReader
 
 from .errors import RejectedUrlError
 
@@ -43,6 +50,8 @@ MAX_HEADINGS = 200
 MAX_STRUCTURED_DATA_CHARS = 200_000
 ALLOWED_SCHEMES = ("http", "https")
 HTML_CONTENT_TYPES = ("text/html", "application/xhtml+xml")
+PDF_CONTENT_TYPE = "application/pdf"
+ACCEPTED_CONTENT_TYPES = (*HTML_CONTENT_TYPES, PDF_CONTENT_TYPE)
 # Sites serve different markup to unknown clients; identify honestly.
 USER_AGENT = "jenymia-bot/1.0 (+https://jenymia.de)"
 
@@ -68,8 +77,85 @@ class WebSource:
 
 
 def fetch(url: str) -> WebSource:
-    html, final_url, status, content_type = _get(url)
+    body, encoding, final_url, status, content_type = _get(url)
+    if content_type.startswith(PDF_CONTENT_TYPE):
+        return _from_pdf(body, final_url, status, content_type)
+    html = body.decode(encoding or "utf-8", errors="replace")
+    return _from_html(html, final_url, status, content_type)
 
+
+def _from_pdf(body: bytes, final_url: str, status: int, content_type: str) -> WebSource:
+    """A datasheet: text and the little metadata a PDF carries.
+
+    Everything a web page offers through its head - description, canonical,
+    OpenGraph, headings - has no equivalent here and stays empty. The site
+    name falls back to the host, which is what a citation needs.
+    """
+    try:
+        reader = PdfReader(io.BytesIO(body))
+        pages = len(reader.pages)
+        info = reader.metadata
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    except Exception as error:  # noqa: BLE001 - pypdf raises a dozen types
+        # Encrypted, damaged or not really a PDF. Retrying downloads the same
+        # bytes again, so this is permanent.
+        raise RejectedUrlError(
+            f"Unreadable PDF: {type(error).__name__}: {error}"
+        ) from None
+
+    # The metadata is read after the try on purpose. pypdf resolves these
+    # entries on access and can raise on a broken reference, but by then the
+    # text is already extracted - and one permanently failed source fails the
+    # whole order. A title is not worth that; both helpers swallow and log.
+    title = _pdf_str(info, "title")
+    author = _pdf_str(info, "author")
+    filename = urlparse(final_url).path.rsplit("/", 1)[-1]
+
+    return WebSource(
+        raw_text=text.strip(),
+        final_url=final_url[:1000],
+        http_status=status,
+        fetched_at=timezone.now(),
+        title=(title or filename)[:300],
+        meta_description="",
+        canonical_url="",
+        site_name=(urlparse(final_url).hostname or "")[:200],
+        author=author[:200],
+        published_at=_aware(_pdf_date(info, "creation_date")),
+        modified_at=_aware(_pdf_date(info, "modification_date")),
+        language="",
+        meta={"content_type": content_type, "pages": pages},
+    )
+
+
+def _pdf_str(info, name: str) -> str:
+    """PDF metadata can be a byte string in any encoding, an unresolved
+    object, or missing. Anything that is not text becomes empty rather than
+    its repr, which would otherwise end up as the public citation label.
+
+    NUL bytes are removed by services on the way into the database, together
+    with every other source field."""
+    try:
+        value = getattr(info, name, None) if info else None
+    except Exception:  # noqa: BLE001 - pypdf resolves the entry on access
+        logger.warning("Unreadable %s in PDF metadata", name)
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value if isinstance(value, str) else ""
+
+
+def _pdf_date(info, name: str) -> datetime | None:
+    """pypdf parses the date on access and raises on the malformed values
+    older writers produce - a date is not worth losing the datasheet for."""
+    try:
+        return getattr(info, name, None) if info else None
+    except Exception:  # noqa: BLE001 - ValueError today, anything tomorrow
+        logger.warning("Unparsable %s in PDF metadata", name)
+        return None
+
+
+def _from_html(html: str, final_url: str, status: int, content_type: str) -> WebSource:
     soup = BeautifulSoup(html, "lxml")
     canonical = _link(soup, "canonical")
     structured = extruct.extract(
@@ -108,10 +194,13 @@ def fetch(url: str) -> WebSource:
     )
 
 
-def _get(url: str) -> tuple[str, str, int, str]:
+def _get(url: str) -> tuple[bytes, str, str, int, str]:
     """Follow redirects by hand so every hop is checked, stream the body so
-    a huge or endless response stops at the cap. Returns (html, final url,
-    status, content type)."""
+    a huge or endless response stops at the cap.
+
+    Returns (body, encoding, final url, status, content type). The body stays
+    bytes because a PDF is not text; the caller decodes what it knows how to
+    read."""
     headers = {"User-Agent": USER_AGENT}
     with httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS, headers=headers) as client:
         for _ in range(MAX_REDIRECTS + 1):
@@ -125,9 +214,9 @@ def _get(url: str) -> tuple[str, str, int, str]:
                 response.raise_for_status()
 
                 content_type = response.headers.get("content-type", "").lower()
-                if not content_type.startswith(HTML_CONTENT_TYPES):
+                if not content_type.startswith(ACCEPTED_CONTENT_TYPES):
                     raise RejectedUrlError(
-                        f"Not an HTML page: {content_type or 'unknown'}"
+                        f"Not an HTML page or PDF: {content_type or 'unknown'}"
                     )
 
                 chunks, size = [], 0
@@ -138,10 +227,13 @@ def _get(url: str) -> tuple[str, str, int, str]:
                             f"Page larger than {MAX_RESPONSE_BYTES} bytes"
                         )
                     chunks.append(chunk)
-                html = b"".join(chunks).decode(
-                    response.encoding or "utf-8", errors="replace"
+                return (
+                    b"".join(chunks),
+                    response.encoding or "",
+                    str(response.url),
+                    response.status_code,
+                    content_type,
                 )
-                return html, str(response.url), response.status_code, content_type
     raise RejectedUrlError(f"More than {MAX_REDIRECTS} redirects")
 
 
@@ -187,5 +279,11 @@ def _parse_datetime(value: str) -> datetime | None:
     except ValueError:
         logger.warning("Unparsable date in page metadata: %r", value)
         return None
-    # A page date without an offset is taken as UTC rather than guessed.
-    return parsed if parsed.tzinfo else timezone.make_aware(parsed, UTC)
+    return _aware(parsed)
+
+
+def _aware(value: datetime | None) -> datetime | None:
+    """A date without an offset is taken as UTC rather than guessed."""
+    if value is None:
+        return None
+    return value if value.tzinfo else timezone.make_aware(value, UTC)

@@ -42,7 +42,8 @@ def run_extract(order_id: str) -> None:
             return
 
         prompt, prompt_version = build_prompt(pipeline, sources)
-        data = schema.parse(analyse(prompt, pipeline), pipeline)
+        answer, provider, model = analyse(prompt, pipeline)
+        data = schema.parse(answer, pipeline)
         product = services.create_product_from_analysis(order, data)
     except Exception as error:
         logger.exception("Analysis failed for order %s", order_id)
@@ -57,6 +58,8 @@ def run_extract(order_id: str) -> None:
         order,
         ProductToAnalyse.Status.ANALYSE_COMPLETE,
         prompt_version=prompt_version,
+        llm_provider=provider,
+        llm_model=model,
     )
     logger.info("Created product %s from order %s.", product.pk, order_id)
 
@@ -123,14 +126,14 @@ def _read_prompt(name: str) -> tuple[str, str]:
     return body.strip(), first_line.split(":", 1)[1].strip()
 
 
-def analyse(prompt: str, pipeline: str) -> str:
+def analyse(prompt: str, pipeline: str) -> tuple[str, str, str]:
     """Ask the language model for the analysis.
 
-    Returns the raw answer as JSON text; parse() validates it before a row is
-    written. The same schema that went into the prompt is handed to the
-    structured output mode, so the shape is enforced while the answer is
-    generated and checked again afterwards. Which provider answers is decided
-    in select_public_LLM.
+    Returns (raw JSON answer, provider, model); parse() validates the answer
+    before a row is written. The same schema that went into the prompt is
+    handed to the structured output mode, so the shape is enforced while the
+    answer is generated and checked again afterwards. Which provider answers
+    is decided in select_public_llm.
     """
     from .select_public_llm import ask
 
