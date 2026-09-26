@@ -36,7 +36,14 @@ def _get_model():
 def transcribe(audio_path: str) -> tuple[str, str]:
     """Return (text, detected language code)."""
     print("TRANSCRIBE.TRANSCRIBE - STARTED", audio_path)
-    segments, info = _get_model().transcribe(audio_path)
+    # beam_size=1: greedy decoding, about half the compute of the default
+    # beam of 5 for a difference in accuracy that does not matter here - the
+    # text goes to a language model, not to a reader. vad_filter drops
+    # silence and music before decoding, which in product videos is a
+    # noticeable share of the runtime, and it keeps whisper from
+    # hallucinating text over the music. On this CPU large-v3 ran at 2.4x
+    # the audio length with the defaults.
+    segments, info = _get_model().transcribe(audio_path, beam_size=1, vad_filter=True)
     # segments is a generator: the work happens while it is consumed.
     text = " ".join(segment.text.strip() for segment in segments)
     logger.info("Transcribed %s (%s).", audio_path, info.language)
