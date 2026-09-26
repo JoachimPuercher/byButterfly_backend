@@ -182,13 +182,11 @@ def _from_html(html: str, final_url: str, status: int, content_type: str) -> Web
 
     print("WEB._FROM_HTML - DONE", final_url)
     return WebSource(
-        # Without these options trafilatura throws away tables and lists,
-        # which on a maker's page is exactly where the specification sits -
-        # material, dimensions, what is in the box. favor_recall keeps
-        # borderline blocks that the strict default drops.
-        raw_text=trafilatura.extract(
-            html, include_tables=True, include_lists=True, favor_recall=True
-        )
+        # Tables stay in explicitly, because on a maker's page that is where
+        # the specification sits - material, dimensions, what is in the box.
+        # Lists are always kept by trafilatura. favor_recall keeps borderline
+        # blocks that the strict default drops.
+        raw_text=trafilatura.extract(html, include_tables=True, favor_recall=True)
         or "",
         final_url=final_url[:1000],
         http_status=status,
