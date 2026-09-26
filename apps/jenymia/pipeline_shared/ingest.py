@@ -26,6 +26,7 @@ import logging
 from dataclasses import asdict
 
 from django.conf import settings
+from django.db import close_old_connections
 
 from apps.jenymia import services
 from apps.jenymia.models import ExtractStatus, ProductToAnalyse
@@ -131,6 +132,12 @@ def _ingest_one(source, handler, transient: list[str], permanent: list[str]) -> 
 def _ingest_youtube(source) -> None:
     print("INGEST._INGEST_YOUTUBE - STARTED", source.url)
     text, language, fields = youtube_text(source.url)
+    # The transcription above can run for the better part of an hour without
+    # a single query. A proxy in between (Railway's TCP proxy) drops a
+    # connection idle that long, and Django only notices on the next query -
+    # which would be the write below, losing the transcript. Closing first
+    # makes that write open a fresh connection.
+    close_old_connections()
     if not text.strip():
         raise EmptySourceError("Transcription returned no text.")
     services.save_source_text(
