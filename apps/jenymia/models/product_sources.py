@@ -16,8 +16,11 @@ from django.db import models
 
 from apps.common.models import BaseModel
 
-from .base import SourceType
+from .choice_lists import SourceType
 from .lookups import MainCategory, SubCategory
+
+# Set by the pipeline for every video source; a web URL chooses from the rest.
+YOUTUBE_SOURCE_TYPE = "youtube"
 
 
 class ProductToAnalyse(BaseModel):
@@ -36,7 +39,9 @@ class ProductToAnalyse(BaseModel):
     brand = models.CharField(max_length=100)
     # Picks the prompt, and becomes the product's home. Chosen by hand,
     # never guessed by the analysis.
-    primary_category = models.CharField(max_length=20, choices=MainCategory.choices)
+    primary_category = models.ForeignKey(
+        MainCategory, on_delete=models.PROTECT, related_name="analysis_orders"
+    )
     # Optional. Only relevant when a group of products inside a main category
     # needs its own wording: if this sub-category carries a prompt_name, that
     # file is used instead of the main category's.
@@ -56,10 +61,11 @@ class ProductToAnalyse(BaseModel):
     # mail delivery yet, this column is the error report.
     error = models.TextField(blank=True)
     attempts = models.PositiveSmallIntegerField(default=0)
-    # Which prompt version produced this analysis, e.g. "toys-2026-09-24".
+    # Which prompt versions produced this analysis - base, group and
+    # translation prompt, e.g. "base-...+toys_learning-...+translate-...".
     # Without it there is no way to find out later which products were
     # written by a prompt that turned out to be wrong.
-    prompt_version = models.CharField(max_length=60, blank=True)
+    prompt_version = models.CharField(max_length=120, blank=True)
     # Which model answered. Together with prompt_version this makes a product
     # traceable to what produced it, which is what a re-run needs to target.
     llm_provider = models.CharField(max_length=20, blank=True)
@@ -161,9 +167,11 @@ class WebUrl(SourceUrlBase):
     )
     # What kind of page this is - the operator knows, the fetcher cannot.
     # Ends up as the type of the public citation.
-    source_type = models.CharField(
-        max_length=20,
-        choices=[c for c in SourceType.choices if c[0] != SourceType.YOUTUBE],
+    source_type = models.ForeignKey(
+        SourceType,
+        on_delete=models.PROTECT,
+        related_name="web_urls",
+        limit_choices_to=~models.Q(slug=YOUTUBE_SOURCE_TYPE),
     )
     # Fetch result, kept for error analysis and re-crawls.
     final_url = models.URLField(max_length=1000, blank=True)

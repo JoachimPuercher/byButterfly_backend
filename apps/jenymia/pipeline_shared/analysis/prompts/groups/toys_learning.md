@@ -1,4 +1,4 @@
-version: toys_learning-2026-09-25
+version: toys_learning-2026-09-25-2
 
 ## Produktgruppe: Spielen & Lernen
 
@@ -7,8 +7,8 @@ Zusaetzlich zu den Regeln oben gilt fuer diese Gruppe:
 - Sicherheit vor allem anderen: Kleinteile, Verschluckbarkeit, Schadstoffe,
   scharfe Kanten, Batteriefaecher. Was in keiner Quelle geprueft wurde, wird
   nicht behauptet.
-- Material und Herkunft gehoeren in die Specs (Holz, Kunststoff, Textil,
-  Farben/Lacke, Herstellungsland).
+- Material gehoert in die Specs (Holz, Kunststoff, Textil, Farben/Lacke).
+  Das Herstellungsland steht in `manufactured_in_country`, nicht in den Specs.
 - Foerderbereiche nur vergeben, wenn eine Quelle sie belegt oder sie sich
   eindeutig aus der Spielmechanik ergibt.
 - `growth_info`: ab wann und bis wann das Produkt sinnvoll bespielt wird und

@@ -50,7 +50,7 @@ These keep a single app extractable into its own service later.
 - Every setting comes from `os.environ` with no default. A missing variable must stop the
   process at startup, not surface later as wrong behaviour.
 - Code comments and docstrings are English. The prompt files under
-  `pipeline_shared/prompts/` are German, because that is the language the model answers in.
+  `pipeline_shared/analysis/prompts/` are German, because that is the language the model answers in.
 
 ---
 
@@ -100,6 +100,27 @@ Both env files are gitignored and both must define `ENV_FILE` with their own nam
 `--env-file` only fills the `${...}` placeholders in `docker-compose.yml`, while `env_file`
 hands the same file to the containers.
 
+### Common commands
+
+Add `--env-file .env.railway` to every command when the stack was started with it.
+
+```bash
+# Which value a container actually sees
+docker compose exec worker printenv WHISPER_MODEL
+
+# Apply a changed env file: restart does not re-read env_file, recreate does
+docker compose up -d --force-recreate worker
+
+# Follow a service's output
+docker compose logs -f worker
+
+# Stop everything (volumes, including the whisper cache, are kept)
+docker compose down
+```
+
+The worker loads the whisper model once per process. After changing `WHISPER_MODEL` it
+must be recreated, and the log then shows `TRANSCRIBE._GET_MODEL - STARTED <model>`.
+
 ---
 
 ## Environment variables
@@ -126,9 +147,7 @@ Only when `DEPLOY_BACKGROUND_WORKERS` is true:
 | `MAX_VIDEO_DURATION_SECONDS` | checked before the download, not after |
 | `INGEST_MAX_ATTEMPTS` | total runs including the first; must be at least 2 |
 | `WHISPER_MODEL` `WHISPER_DEVICE` `WHISPER_COMPUTE_TYPE` | |
-| `USE_LLM_MODEL` | `claude` or `gemini` - which one writes the analysis, no fallback between them |
-| `GEMINI_API_KEY` `GEMINI_MODEL` | the cheap seat for test runs |
-| `ANTHROPIC_API_KEY` `ANTHROPIC_MODEL` | writes the published analyses |
+| `ANTHROPIC_API_KEY` `ANTHROPIC_MODEL` | Claude writes the analysis |
 
 Production only (`core.settings.prod`):
 
@@ -156,9 +175,10 @@ admin saves order
        raw text and metadata are stored per source
   -> services.request_extract    status: text_extracted
   -> run_extract
-       build prompt from prompts/_base.md + prompts/<pipeline>.md
-       ask Gemini, fall back to Claude
-       validate the answer against pipeline_shared/schema.py
+       build prompt from prompts/shared/base.md + prompts/groups/<main category>.md
+       ask Claude for the analysis in German (the schema is the input of a tool)
+       ask Claude to translate every German text, keyed by its path
+       validate the answer against pipeline_shared/analysis/schema/
        write the product and all its rows
                                  status: analyse_complete
 ```
@@ -180,13 +200,15 @@ Two things are deliberately kept apart:
 
 ### The answer contract
 
-`pipeline_shared/schema.py` is the single definition of what the model has to return. It is
+`pipeline_shared/analysis/schema/` is the single definition of what the model has to return:
+`shared.py` for what every product group returns, `toys.py`, `school.py` and `tech.py` for
+what only one returns, `answer.py` for the shape per main category. It is
 used three times: as the JSON schema handed to the provider, as the validation of the
 answer, and as the coercion of the values models get wrong in predictable ways. Field names
 are column names. Change it together with the prompt, never one alone.
 
-Three pipelines exist, and the value is also the prompt filename:
-`toys` → `prompts/toys.md`, `school`, `tech`.
+Three pipelines exist, one per main category, and its slug is also the prompt filename:
+`toys_learning` → `prompts/groups/toys_learning.md`, `school_everyday`, `tech_safety`.
 
 Nothing from the answer reaches a model constructor unfiltered: `services._clean()` drops
 keys that are not columns and cuts strings to the column length.
@@ -271,10 +293,10 @@ Known gaps, in the order they matter:
   Railway's health check can work. `django-cors-headers`, `django-filter`, `django-redis`
   and `drf-spectacular` are installed but not wired up.
 - Throttle counters live in `LocMemCache`, so they count per process and reset on restart.
-- Several values from a language model can still abort a whole analysis: a duplicate spec
-  key, a sub-category whose English slug is already taken, a product slug over 160
-  characters. `manufactured_in_country` is truncated rather than validated, so `"China"`
-  becomes `CH` — Switzerland.
+- Unusable values from the language model fall back field by field (logged, see
+  `pipeline_shared/analysis/schema/`). One case still aborts an analysis on purpose: a brand
+  from which no slug can be built. A product slug is the title; where it is taken, the
+  brand, the model and finally a number are appended.
 
 A full fix plan with severities and a verification checklist lives outside the repository;
 ask the maintainer for it.

@@ -1,13 +1,11 @@
-"""Master data: brands, sub-categories, badges, authors.
+"""Master data: main and sub-categories, brands, badges, authors.
 
 These tables are small, change rarely and are referenced by products.
 They use PROTECT on delete: removing a brand that products point at must
 fail loudly instead of silently deleting the products.
 
-The three main categories are deliberately NOT a table: they are strategy,
-fixed in code, and each one names the prompt file that analyses it. Their
-display names live in the frontend, because three values that change only
-with a deploy do not need a translation row each.
+Every text a visitor reads is stored in both languages here, in the
+<Model>Translation tables - none of it is translated in the frontend.
 """
 
 from django.db import models
@@ -15,19 +13,56 @@ from django.db import models
 from apps.common.models import BaseModel
 
 from .base import TranslationBase
+from .choice_lists import PrefetchTranslationsManager
 
 
-class MainCategory(models.TextChoices):
+class MainCategory(BaseModel):
     """The three product groups. One per product, and the one that decides
-    which prompt analyses it: the value is the file name in
-    pipeline_shared/prompts/, e.g. "toys_learning" -> toys_learning.md.
+    which prompt analyses it: the slug is the file name in
+    pipeline_shared/analysis/prompts/groups/, e.g. "toys_learning" ->
+    toys_learning.md, the key of the answer shape in
+    pipeline_shared/analysis/schema/answer.py and of the product group in
+    models/product_groups.py. A new main category therefore needs a prompt
+    file, an answer shape and a product group as well as a row here. Seeded
+    by migration 0002."""
 
-    The labels are German because the admin is German; what a visitor sees
-    is translated in the frontend from the value."""
+    slug = models.SlugField(max_length=30, unique=True)
+    sort_order = models.PositiveSmallIntegerField(default=0)
 
-    TOYS_LEARNING = "toys_learning", "Spielen & Lernen"
-    SCHOOL_EVERYDAY = "school_everyday", "Schule & Alltag"
-    TECH_SAFETY = "tech_safety", "Tech & Sicherheit"
+    objects = PrefetchTranslationsManager()
+
+    class Meta:
+        ordering = ("sort_order",)
+        verbose_name_plural = "main categories"
+
+    def name_in(self, locale: str) -> str:
+        """The name in the given language; empty if that translation is
+        missing. Reads from .all() so a prefetch covers it."""
+        return next((t.name for t in self.translations.all() if t.locale == locale), "")
+
+    def __str__(self) -> str:
+        return self.name_in("en") or self.slug
+
+
+class MainCategoryTranslation(TranslationBase):
+    main_category = models.ForeignKey(
+        MainCategory, on_delete=models.CASCADE, related_name="translations"
+    )
+    # The hub page of a main category lives under /<locale>/<slug>/, so the
+    # slug is per language, like a sub-category's.
+    slug = models.SlugField(max_length=120)
+    name = models.CharField(max_length=100)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["main_category", "locale"],
+                name="main_category_one_translation_per_locale",
+            ),
+            models.UniqueConstraint(
+                fields=["locale", "slug"], name="main_category_slug_unique_per_locale"
+            ),
+        ]
 
 
 class Brand(BaseModel):
@@ -55,7 +90,7 @@ class SubCategory(BaseModel):
     """
 
     # Empty means: use the prompt of the product's main category. Set it to
-    # a file name in pipeline_shared/prompts/ when a group of products needs
+    # a file name in pipeline_shared/analysis/prompts/groups/ when a group of products needs
     # its own wording. The answer keeps the shape of the main category.
     prompt_name = models.CharField(max_length=60, blank=True)
     sort_order = models.PositiveSmallIntegerField(default=0)
@@ -65,8 +100,11 @@ class SubCategory(BaseModel):
         verbose_name_plural = "sub-categories"
 
     def __str__(self) -> str:
-        translation = self.translations.first()
-        return translation.name if translation else str(self.pk)
+        # Always the English name, like the English slug a badge shows -
+        # first() returned whichever translation came first, mostly German.
+        # Reads from .all() so a prefetch of translations covers it.
+        names = {t.locale: t.name for t in self.translations.all()}
+        return names.get("en") or next(iter(names.values()), str(self.pk))
 
 
 class SubCategoryTranslation(TranslationBase):
@@ -157,10 +195,9 @@ class Author(BaseModel):
     nothing about any product."""
 
     slug = models.SlugField(max_length=100, unique=True)
+    # A person's name is the same in every language; role, bio and
+    # credentials are text and live in AuthorTranslation.
     name = models.CharField(max_length=120)
-    role = models.CharField(max_length=120, blank=True)
-    bio = models.TextField(blank=True)
-    credentials = models.TextField(blank=True)
     photo_key = models.CharField(max_length=300, blank=True)
     # Profile URLs for schema.org sameAs, e.g. ["https://linkedin.com/in/..."]
     same_as = models.JSONField(default=list, blank=True)
@@ -170,3 +207,19 @@ class Author(BaseModel):
 
     def __str__(self) -> str:
         return self.name
+
+
+class AuthorTranslation(TranslationBase):
+    author = models.ForeignKey(
+        Author, on_delete=models.CASCADE, related_name="translations"
+    )
+    role = models.CharField(max_length=120, blank=True)
+    bio = models.TextField(blank=True)
+    credentials = models.TextField(blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["author", "locale"], name="author_one_translation_per_locale"
+            )
+        ]

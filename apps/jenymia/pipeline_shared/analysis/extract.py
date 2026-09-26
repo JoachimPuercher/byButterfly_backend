@@ -3,28 +3,31 @@
 Runs only after job 1 has produced text, and it can be repeated without
 downloading anything again - the raw material stays in the database.
 
-The provider sits behind analyse(). Swapping it touches that function and
-nothing else: the prompt is already built, the expected answer is defined
+Two requests to Claude (claude.py): the analysis, written in German only,
+then its English translation (translate.py). The expected answer is defined
 once in schema.py, and every answer is validated before a row is written.
 """
 
 import json
 import logging
-from pathlib import Path
 
-from apps.jenymia import services
-from apps.jenymia.models import ExtractStatus, ProductToAnalyse, SourceType
+from apps.jenymia import selectors, services
+from apps.jenymia.models import YOUTUBE_SOURCE_TYPE, ExtractStatus, ProductToAnalyse
 
-from . import schema
+from . import schema, translate
+from .prompt_files import read_prompt
 
 logger = logging.getLogger(__name__)
 
-PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
+# The tool Claude calls with the finished German analysis.
+ANALYSIS_TOOL = "save_analysis"
 
 
 def run_extract(order_id: str) -> None:
     print("EXTRACT.RUN_EXTRACT - STARTED", order_id)
-    order = ProductToAnalyse.objects.select_related("sub_category").get(pk=order_id)
+    order = ProductToAnalyse.objects.select_related(
+        "sub_category", "primary_category"
+    ).get(pk=order_id)
 
     # Everything that can fail is inside the try, including the prompt
     # files. An exception thrown before it would leave the order on
@@ -33,7 +36,7 @@ def run_extract(order_id: str) -> None:
     try:
         # The main category picks the prompt and the answer shape. A
         # sub-category may override the wording without changing the shape.
-        pipeline = order.primary_category
+        pipeline = order.primary_category.slug
         prompt_name = (
             order.sub_category.prompt_name if order.sub_category_id else ""
         ) or pipeline
@@ -55,11 +58,22 @@ def run_extract(order_id: str) -> None:
         product = {
             "title": order.title,
             "brand": order.brand,
-            "main_category": order.get_primary_category_display(),
+            # German, like the prompt it goes into.
+            "main_category": order.primary_category.name_in("de"),
         }
-        prompt, prompt_version = build_prompt(prompt_name, pipeline, product, sources)
-        answer, provider, model = analyse(prompt, pipeline)
-        data = schema.parse(answer, pipeline)
+        # The values the answer may use for its choice fields, read from the
+        # lists in the database - the same rows the write step resolves them
+        # against.
+        choices = selectors.analysis_choices()
+        prompt, prompt_version = build_prompt(
+            prompt_name, pipeline, product, sources, choices
+        )
+        german, provider, model = analyse(prompt, pipeline, choices)
+        answer, translate_version = translate.translate(
+            json.loads(german), pipeline, order_facts=product
+        )
+        prompt_version = f"{prompt_version}+{translate_version}"
+        data = schema.parse(answer, pipeline, order_facts=product, choices=choices)
         product = services.create_product_from_analysis(order, data)
     except Exception as error:
         logger.exception("Analysis failed for order %s", order_id)
@@ -68,7 +82,7 @@ def run_extract(order_id: str) -> None:
             ProductToAnalyse.Status.FAILED,
             error=f"{type(error).__name__}: {error}",
         )
-        print("EXTRACT.RUN_EXTRACT - DONE", order_id)
+        print("EXTRACT.RUN_EXTRACT - ERROR", order_id)
         return
 
     services.set_order_status(
@@ -90,7 +104,7 @@ def _collect_sources(order: ProductToAnalyse) -> list[dict]:
     for source in order.youtube_urls.filter(extract_status=ExtractStatus.EXTRACTED):
         sources.append(
             {
-                "type": SourceType.YOUTUBE,
+                "type": YOUTUBE_SOURCE_TYPE,
                 "url": source.webpage_url or source.url,
                 "label": source.title,
                 "publisher": source.channel,
@@ -107,10 +121,12 @@ def _collect_sources(order: ProductToAnalyse) -> list[dict]:
                 "spoken_language": source.transcript_language,
             }
         )
-    for source in order.web_urls.filter(extract_status=ExtractStatus.EXTRACTED):
+    for source in order.web_urls.filter(
+        extract_status=ExtractStatus.EXTRACTED
+    ).select_related("source_type"):
         sources.append(
             {
-                "type": source.source_type,
+                "type": source.source_type.slug,
                 "url": source.canonical_url or source.final_url or source.url,
                 "label": source.title,
                 "publisher": source.site_name or source.author,
@@ -131,20 +147,26 @@ def _collect_sources(order: ProductToAnalyse) -> list[dict]:
 
 
 def build_prompt(
-    prompt_name: str, pipeline: str, product: dict, sources: list[dict]
+    prompt_name: str,
+    pipeline: str,
+    product: dict,
+    sources: list[dict],
+    choices: dict[str, list[str]],
 ) -> tuple[str, str]:
     """Base prompt plus the fragment of this product group.
 
-    Everything that is always collected lives in _base.md; the group file
+    Everything that is always collected lives in shared/base.md; the group file
     adds what only this group needs and may sharpen the base rules, because
     it is appended after them. Returns the prompt and the version string
     that gets stored with the result.
     """
     print("EXTRACT.BUILD_PROMPT - STARTED", prompt_name)
-    base, base_version = _read_prompt("_base.md")
-    group, group_version = _read_prompt(f"{prompt_name}.md")
+    base, base_version = read_prompt("shared/base.md")
+    group, group_version = read_prompt(f"groups/{prompt_name}.md")
 
-    fields = json.dumps(schema.json_schema(pipeline), indent=2, ensure_ascii=False)
+    fields = json.dumps(
+        schema.json_schema(pipeline, choices), indent=2, ensure_ascii=False
+    )
     rendered_product = json.dumps(product, indent=2, ensure_ascii=False)
     rendered_sources = json.dumps(sources, indent=2, ensure_ascii=False)
     prompt = (
@@ -157,35 +179,23 @@ def build_prompt(
     return prompt, f"{base_version}+{group_version}"
 
 
-def _read_prompt(name: str) -> tuple[str, str]:
-    """The first line of every prompt file is 'version: <id>'. The file is
-    the history (git), the version string is what makes it possible to find
-    out later which products a given prompt produced.
+def analyse(
+    prompt: str, pipeline: str, choices: dict[str, list[str]]
+) -> tuple[str, str, str]:
+    """Ask Claude for the German analysis.
 
-    _base.md goes through str.format, so it may contain no braces except the
-    three placeholders {fields}, {product} and {sources}. The group files are appended
-    unformatted and may use braces freely."""
-    print("EXTRACT._READ_PROMPT - STARTED", name)
-    text = (PROMPTS_DIR / name).read_text(encoding="utf-8")
-    first_line, _, body = text.partition("\n")
-    if not first_line.startswith("version:"):
-        raise ValueError(f"Prompt {name} has no version line.")
-    print("EXTRACT._READ_PROMPT - DONE", name)
-    return body.strip(), first_line.split(":", 1)[1].strip()
-
-
-def analyse(prompt: str, pipeline: str) -> tuple[str, str, str]:
-    """Ask the language model for the analysis.
-
-    Returns (raw JSON answer, provider, model); parse() validates the answer
-    before a row is written. The same schema that went into the prompt is
-    handed to the structured output mode, so the shape is enforced while the
-    answer is generated and checked again afterwards. Which provider answers
-    is decided in select_public_llm.
+    Returns (raw JSON answer, provider, model). The same German schema that
+    went into the prompt is handed to Claude as the input of its tool; the
+    English fields are added by translate.py before parse() validates both.
     """
     print("EXTRACT.ANALYSE - STARTED", pipeline)
-    from .select_public_llm import ask
+    from .claude import ask
 
-    answer, provider, model = ask(prompt, schema.json_schema(pipeline))
+    answer, provider, model = ask(
+        prompt,
+        schema.json_schema(pipeline, choices),
+        ANALYSIS_TOOL,
+        "Save the finished German product analysis.",
+    )
     print("EXTRACT.ANALYSE - DONE", model)
     return answer, provider, model

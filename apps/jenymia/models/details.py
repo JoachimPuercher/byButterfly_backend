@@ -9,7 +9,14 @@ from django.db import models
 
 from apps.common.models import BaseModel
 
-from .base import SourceType, TranslationBase
+from .base import TranslationBase
+from .choice_lists import (
+    Availability,
+    DataType,
+    ProsConType,
+    ServerRegion,
+    SourceType,
+)
 from .product import Product
 
 
@@ -29,7 +36,6 @@ class ProductImage(BaseModel):
     # another domain is one environment variable, not a data migration.
     key = models.CharField(max_length=300)
     source = models.CharField(max_length=20, choices=Source.choices)
-    license_note = models.TextField(blank=True)
     is_primary = models.BooleanField(default=False)
     sort_order = models.PositiveSmallIntegerField(default=0)
 
@@ -51,6 +57,7 @@ class ProductImageTranslation(TranslationBase):
     )
     alt_text = models.CharField(max_length=200)
     caption = models.CharField(max_length=300, blank=True)
+    license_note = models.TextField(blank=True)
 
     class Meta:
         constraints = [
@@ -71,9 +78,13 @@ class ProductSource(BaseModel):
     product = models.ForeignKey(
         Product, on_delete=models.CASCADE, related_name="sources"
     )
+    # The source's own title, in the language it was published in - a
+    # citation is not translated.
     label = models.CharField(max_length=300, blank=True)
     url = models.URLField(max_length=1000)
-    source_type = models.CharField(max_length=20, choices=SourceType.choices)
+    source_type = models.ForeignKey(
+        SourceType, on_delete=models.PROTECT, related_name="product_sources"
+    )
     # When the source itself was published - an age signal for the citation.
     published_at = models.DateField(null=True, blank=True)
     sort_order = models.PositiveSmallIntegerField(default=0)
@@ -83,8 +94,10 @@ class ProductSource(BaseModel):
 
 
 class ProductSpec(BaseModel):
-    """Machine readable key/value facts. The key is stable and untranslated
-    ("material"), the value is translated."""
+    """Machine readable key/value facts. The key is stable, English and
+    untranslated ("weight") - it is what compares products with each other.
+    What a visitor reads, the label ("Gewicht") and the value, is
+    translated."""
 
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="specs")
     key = models.CharField(max_length=60)
@@ -103,6 +116,7 @@ class ProductSpecTranslation(TranslationBase):
     spec = models.ForeignKey(
         ProductSpec, on_delete=models.CASCADE, related_name="translations"
     )
+    label = models.CharField(max_length=100)
     value = models.CharField(max_length=300)
 
     class Meta:
@@ -137,17 +151,16 @@ class ProductFaqTranslation(TranslationBase):
 
 
 class ProductProsCon(BaseModel):
-    class Type(models.TextChoices):
-        PRO = "pro", "pro"
-        CON = "con", "con"
-
     product = models.ForeignKey(
         Product, on_delete=models.CASCADE, related_name="pros_cons"
     )
-    type = models.CharField(max_length=3, choices=Type.choices)
+    type = models.ForeignKey(
+        ProsConType, on_delete=models.PROTECT, related_name="pros_cons"
+    )
     sort_order = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
+        # By type follows ProsConType's own order: pros first, then cons.
         ordering = ("type", "sort_order")
 
 
@@ -170,19 +183,18 @@ class AffiliateLink(BaseModel):
     """One offer per shop. Availability belongs here and not on Product: a
     product has no stock, a shop has."""
 
-    class Availability(models.TextChoices):
-        IN_STOCK = "in_stock", "in stock"
-        OUT_OF_STOCK = "out_of_stock", "out of stock"
-        PREORDER = "preorder", "preorder"
-        DISCONTINUED = "discontinued", "discontinued"
-
     product = models.ForeignKey(
         Product, on_delete=models.CASCADE, related_name="affiliate_links"
     )
+    # The shop's name, the same in every language.
     provider = models.CharField(max_length=60)
     url = models.URLField(max_length=1000)
-    availability = models.CharField(
-        max_length=15, choices=Availability.choices, blank=True
+    availability = models.ForeignKey(
+        Availability,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="affiliate_links",
     )
     sort_order = models.PositiveSmallIntegerField(default=0)
 
@@ -191,33 +203,21 @@ class AffiliateLink(BaseModel):
 
 
 class DataCategory(BaseModel):
-    """Tech pipeline only: which data a device or app collects, and where it
-    ends up."""
-
-    class DataType(models.TextChoices):
-        LOCATION = "location", "location"
-        AUDIO = "audio", "audio"
-        VIDEO = "video", "video"
-        CONTACTS = "contacts", "contacts"
-        USAGE_STATS = "usage_stats", "usage statistics"
-        BIOMETRICS = "biometrics", "biometrics"
-        MESSAGES = "messages", "messages"
-        PHOTOS = "photos", "photos"
-
-    class ServerRegion(models.TextChoices):
-        EU = "EU", "EU"
-        US = "US", "US"
-        CN = "CN", "CN"
-        THIRD_COUNTRY = "third_country", "third country"
-        UNKNOWN = "unknown", "unknown"
-        ON_DEVICE_ONLY = "on_device_only", "on device only"
+    """Tech products only: which data a device or app collects, and where it
+    ends up. Points at TechProduct, so no other group can carry one."""
 
     product = models.ForeignKey(
-        Product, on_delete=models.CASCADE, related_name="data_categories"
+        "jenymia.TechProduct", on_delete=models.CASCADE, related_name="data_categories"
     )
-    data_type = models.CharField(max_length=15, choices=DataType.choices)
-    server_region = models.CharField(
-        max_length=15, choices=ServerRegion.choices, blank=True
+    data_type = models.ForeignKey(
+        DataType, on_delete=models.PROTECT, related_name="data_categories"
+    )
+    server_region = models.ForeignKey(
+        ServerRegion,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="data_categories",
     )
     is_optional = models.BooleanField(default=False)
     # Null means: not stated by the manufacturer, which differs from "no".

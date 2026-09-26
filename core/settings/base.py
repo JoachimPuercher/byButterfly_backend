@@ -135,6 +135,7 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "jenymia_product_detail_anon": "60/min",
         "jenymia_product_detail_user": "120/min",
+        "jenymia_product_list": "60/min",
     },
 }
 
@@ -162,19 +163,8 @@ WHISPER_MODEL = os.environ["WHISPER_MODEL"]
 WHISPER_DEVICE = os.environ["WHISPER_DEVICE"]
 WHISPER_COMPUTE_TYPE = os.environ["WHISPER_COMPUTE_TYPE"]
 
-# Language models for the extract job (pipeline_shared/select_public_llm.py).
-# USE_LLM_MODEL names the one that writes the analysis; there is no fallback
-# between them, because which model wrote a text decides how that text reads.
-# Claude writes the published analyses, Gemini Flash is the cheap seat for
-# test runs. The two values are the constants in select_public_llm; checked
-# here so a typo stops the process at startup instead of a job at midnight.
-# The keys may be empty where no worker runs.
-USE_LLM_MODEL = os.environ["USE_LLM_MODEL"]
-if USE_LLM_MODEL not in ("claude", "gemini"):
-    raise ValueError("USE_LLM_MODEL must be 'claude' or 'gemini'.")
-
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-GEMINI_MODEL = os.environ["GEMINI_MODEL"]
+# Claude writes the analysis in the extract job (pipeline_shared/analysis/claude.py).
+# The key may be empty where no worker runs.
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 ANTHROPIC_MODEL = os.environ["ANTHROPIC_MODEL"]
 

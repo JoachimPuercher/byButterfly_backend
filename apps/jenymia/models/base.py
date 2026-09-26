@@ -19,21 +19,6 @@ class Locale(models.TextChoices):
     EN = "en", "English"
 
 
-class SourceType(models.TextChoices):
-    """What kind of publication a source is. Chosen by hand when the URL is
-    entered, never guessed by the analysis."""
-
-    YOUTUBE = "youtube", "YouTube"
-    ARTICLE = "article", "article"
-    TEST_INSTITUTE = "test_institute", "test institute"
-    MANUFACTURER = "manufacturer", "manufacturer"
-    # Technical specifications from the manufacturer, often a PDF. Kept apart
-    # from MANUFACTURER because it is the source that carries comparable
-    # numbers, not marketing copy.
-    DATASHEET = "datasheet", "datasheet"
-    FORUM = "forum", "forum"
-
-
 class TranslationBase(BaseModel):
     """Abstract parent for all <Model>Translation tables."""
 
