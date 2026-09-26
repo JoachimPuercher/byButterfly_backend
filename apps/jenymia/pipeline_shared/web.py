@@ -45,7 +45,10 @@ logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT_SECONDS = 20
 MAX_REDIRECTS = 5
-MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+# An oversized page is a permanent error and fails the whole order, so
+# the cap has to sit above what a manufacturer brochure as PDF weighs -
+# 10 to 20 MB is common. The stream still stops at the cap.
+MAX_RESPONSE_BYTES = 25 * 1024 * 1024
 MAX_HEADINGS = 200
 MAX_STRUCTURED_DATA_CHARS = 200_000
 ALLOWED_SCHEMES = ("http", "https")
